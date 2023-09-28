@@ -1,0 +1,3 @@
+[submodule "ebpf"]
+	path = ebpf
+	url = https://github.com/elastic/ebpf
