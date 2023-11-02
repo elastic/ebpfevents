@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -31,7 +32,7 @@ import (
 	"github.com/elastic/ebpfevents/internal/varlen"
 )
 
-//go:generate stringer -linecomment=true -type=EventType,Transport,Family -output=event_string.go
+//go:generate stringer -linecomment=true -type=EventType,Transport,Family,FileType -output=event_string.go
 
 type EventUnmarshaler interface {
 	Unmarshal(*bytes.Reader) error
@@ -317,17 +318,55 @@ func (e *ProcessTTYWrite) Unmarshal(r *bytes.Reader) error {
 	return nil
 }
 
+type FileType uint32
+
+const (
+	FileTypeUnknown     FileType = iota // Unknown
+	FileTypeFile                        // File
+	FileTypeDir                         // Dir
+	FileTypeSymlink                     // Symlink
+	FileTypeCharDevice                  // CharDevice
+	FileTypeBlockDevice                 // BlockDevice
+	FileTypeNamedPipe                   // NamedPipe
+	FileTypeSocket                      // Socket
+)
+
+func (ft FileType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ft.String())
+}
+
+type FileInfo struct {
+	Type  FileType  `json:"type"`
+	Inode uint64    `json:"inode"`
+	Mode  string    `json:"mode"`
+	Size  uint64    `json:"size"`
+	Uid   uint32    `json:"uid"`
+	Gid   uint32    `json:"gid"`
+	Atime time.Time `json:"atime"`
+	Mtime time.Time `json:"mtime"`
+	Ctime time.Time `json:"ctime"`
+}
+
 type FileCreate struct {
-	Pids    PidInfo `json:"pids"`
-	MountNs uint32  `json:"mount_ns"`
-	Comm    string  `json:"comm"`
-	Path    string  `json:"path"`
+	Pids              PidInfo  `json:"pids"`
+	Finfo             FileInfo `json:"file_info"`
+	MountNs           uint32   `json:"mount_ns"`
+	Comm              string   `json:"comm"`
+	Path              string   `json:"path"`
+	SymlinkTargetPath string   `json:"symlink_target_path"`
 }
 
 func (e *FileCreate) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
 	}
+
+	fi, err := readFileInfo(r)
+	if err != nil {
+		return fmt.Errorf("read file info: %v", err)
+	}
+	e.Finfo = fi
+
 	if err := binary.Read(r, endian.Native, &e.MountNs); err != nil {
 		return fmt.Errorf("read mount namespace: %v", err)
 	}
@@ -344,22 +383,34 @@ func (e *FileCreate) Unmarshal(r *bytes.Reader) error {
 	}
 	if val, ok := vlMap[varlen.Path]; ok {
 		e.Path = val.(string)
+	}
+	if val, ok := vlMap[varlen.SymlinkTargetPath]; ok {
+		e.SymlinkTargetPath = val.(string)
 	}
 
 	return nil
 }
 
 type FileDelete struct {
-	Pids    PidInfo `json:"pids"`
-	MountNs uint32  `json:"mount_ns"`
-	Comm    string  `json:"comm"`
-	Path    string  `json:"path"`
+	Pids              PidInfo  `json:"pids"`
+	Finfo             FileInfo `json:"file_info"`
+	MountNs           uint32   `json:"mount_ns"`
+	Comm              string   `json:"comm"`
+	Path              string   `json:"path"`
+	SymlinkTargetPath string   `json:"symlink_target_path"`
 }
 
 func (e *FileDelete) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
 	}
+
+	fi, err := readFileInfo(r)
+	if err != nil {
+		return fmt.Errorf("read file info: %v", err)
+	}
+	e.Finfo = fi
+
 	if err := binary.Read(r, endian.Native, &e.MountNs); err != nil {
 		return fmt.Errorf("read mount namespace: %v", err)
 	}
@@ -377,22 +428,34 @@ func (e *FileDelete) Unmarshal(r *bytes.Reader) error {
 	if val, ok := vlMap[varlen.Path]; ok {
 		e.Path = val.(string)
 	}
+	if val, ok := vlMap[varlen.SymlinkTargetPath]; ok {
+		e.SymlinkTargetPath = val.(string)
+	}
 
 	return nil
 }
 
 type FileRename struct {
-	Pids    PidInfo `json:"pids"`
-	MountNs uint32  `json:"mount_ns"`
-	Comm    string  `json:"comm"`
-	OldPath string  `json:"old_path"`
-	NewPath string  `json:"new_path"`
+	Pids              PidInfo  `json:"pids"`
+	Finfo             FileInfo `json:"file_info"`
+	MountNs           uint32   `json:"mount_ns"`
+	Comm              string   `json:"comm"`
+	OldPath           string   `json:"old_path"`
+	NewPath           string   `json:"new_path"`
+	SymlinkTargetPath string   `json:"symlink_target_path"`
 }
 
 func (e *FileRename) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
 	}
+
+	fi, err := readFileInfo(r)
+	if err != nil {
+		return fmt.Errorf("read file info: %v", err)
+	}
+	e.Finfo = fi
+
 	if err := binary.Read(r, endian.Native, &e.MountNs); err != nil {
 		return fmt.Errorf("read mount namespace: %v", err)
 	}
@@ -412,6 +475,9 @@ func (e *FileRename) Unmarshal(r *bytes.Reader) error {
 	}
 	if val, ok := vlMap[varlen.NewPath]; ok {
 		e.NewPath = val.(string)
+	}
+	if val, ok := vlMap[varlen.SymlinkTargetPath]; ok {
+		e.SymlinkTargetPath = val.(string)
 	}
 
 	return nil
@@ -460,9 +526,12 @@ func (e *NetEvent) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
 	}
-	if err := readNetInfo(r, e); err != nil {
+
+	ni, err := readNetInfo(r)
+	if err != nil {
 		return fmt.Errorf("read net info: %v", err)
 	}
+	e.Net = ni
 
 	comm, err := readTaskComm(r)
 	if err != nil {
@@ -548,45 +617,89 @@ func readTaskComm(r *bytes.Reader) (string, error) {
 	return unix.ByteSliceToString(buf[:]), nil
 }
 
-func readNetInfo(r *bytes.Reader, ev *NetEvent) error {
+func readNetInfo(r *bytes.Reader) (NetInfo, error) {
 	var ni NetInfo
 
 	if err := binary.Read(r, endian.Native, &ni.Transport); err != nil {
-		return fmt.Errorf("read transport: %v", err)
+		return ni, fmt.Errorf("read transport: %v", err)
 	}
 	if err := binary.Read(r, endian.Native, &ni.Family); err != nil {
-		return fmt.Errorf("read family: %v", err)
+		return ni, fmt.Errorf("read family: %v", err)
 	}
 
 	var saddr [16]byte
 	if err := binary.Read(r, endian.Native, &saddr); err != nil {
-		return fmt.Errorf("read saddr/6: %v", err)
+		return ni, fmt.Errorf("read saddr/6: %v", err)
 	}
 	ni.SourceAddress = netip.AddrFrom16(saddr)
 
 	var daddr [16]byte
 	if err := binary.Read(r, endian.Native, &daddr); err != nil {
-		return fmt.Errorf("read daddr/6: %v", err)
+		return ni, fmt.Errorf("read daddr/6: %v", err)
 	}
 	ni.DestinationAddress = netip.AddrFrom16(daddr)
 
 	if err := binary.Read(r, endian.Native, &ni.SourcePort); err != nil {
-		return fmt.Errorf("read sport: %v", err)
+		return ni, fmt.Errorf("read sport: %v", err)
 	}
 	if err := binary.Read(r, endian.Native, &ni.DestinationPort); err != nil {
-		return fmt.Errorf("read dport: %v", err)
+		return ni, fmt.Errorf("read dport: %v", err)
 	}
 	if err := binary.Read(r, endian.Native, &ni.NetNs); err != nil {
-		return fmt.Errorf("read net ns: %v", err)
+		return ni, fmt.Errorf("read net ns: %v", err)
 	}
 	if err := binary.Read(r, endian.Native, &ni.BytesSent); err != nil {
-		return fmt.Errorf("read bytes sent: %v", err)
+		return ni, fmt.Errorf("read bytes sent: %v", err)
 	}
 	if err := binary.Read(r, endian.Native, &ni.BytesReceived); err != nil {
-		return fmt.Errorf("read bytes received: %v", err)
+		return ni, fmt.Errorf("read bytes received: %v", err)
 	}
 
-	ev.Net = ni
+	return ni, nil
+}
 
-	return nil
+func readFileInfo(r *bytes.Reader) (FileInfo, error) {
+	var fi FileInfo
+
+	if err := binary.Read(r, endian.Native, &fi.Type); err != nil {
+		return fi, fmt.Errorf("read type: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &fi.Inode); err != nil {
+		return fi, fmt.Errorf("read inode: %v", err)
+	}
+
+	var m uint16
+	if err := binary.Read(r, endian.Native, &m); err != nil {
+		return fi, fmt.Errorf("read mode: %v", err)
+	}
+	fi.Mode = strconv.FormatUint(uint64(m), 8)
+
+	if err := binary.Read(r, endian.Native, &fi.Size); err != nil {
+		return fi, fmt.Errorf("read size: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &fi.Uid); err != nil {
+		return fi, fmt.Errorf("read uid: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &fi.Gid); err != nil {
+		return fi, fmt.Errorf("read gid: %v", err)
+	}
+
+	var ts uint64
+
+	if err := binary.Read(r, endian.Native, &ts); err != nil {
+		return fi, fmt.Errorf("read atime: %v", err)
+	}
+	fi.Atime = time.Unix(0, int64(ts))
+
+	if err := binary.Read(r, endian.Native, &ts); err != nil {
+		return fi, fmt.Errorf("read mtime: %v", err)
+	}
+	fi.Mtime = time.Unix(0, int64(ts))
+
+	if err := binary.Read(r, endian.Native, &ts); err != nil {
+		return fi, fmt.Errorf("read ctime: %v", err)
+	}
+	fi.Ctime = time.Unix(0, int64(ts))
+
+	return fi, nil
 }
