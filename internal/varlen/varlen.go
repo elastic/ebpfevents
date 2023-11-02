@@ -43,6 +43,7 @@ const (
 	NewPath
 	TTYOutput
 	CgroupPath
+	SymlinkTargetPath
 )
 
 type varlenStart struct {
@@ -69,7 +70,7 @@ func DeserializeVarlenFields(r *bytes.Reader) (Map, error) {
 		}
 
 		switch field.typ {
-		case Cwd, Filename, Path, OldPath, NewPath, TTYOutput, CgroupPath:
+		case Cwd, Filename, Path, OldPath, NewPath, TTYOutput, CgroupPath, SymlinkTargetPath:
 			str, err := deserializeVarlenString(r, field.size)
 			if err != nil {
 				return nil, fmt.Errorf("deserialize varlen string: %v", err)
