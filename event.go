@@ -23,7 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
-	"strconv"
+	"os"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -336,15 +336,15 @@ func (ft FileType) MarshalJSON() ([]byte, error) {
 }
 
 type FileInfo struct {
-	Type  FileType  `json:"type"`
-	Inode uint64    `json:"inode"`
-	Mode  string    `json:"mode"`
-	Size  uint64    `json:"size"`
-	Uid   uint32    `json:"uid"`
-	Gid   uint32    `json:"gid"`
-	Atime time.Time `json:"atime"`
-	Mtime time.Time `json:"mtime"`
-	Ctime time.Time `json:"ctime"`
+	Type  FileType    `json:"type"`
+	Inode uint64      `json:"inode"`
+	Mode  os.FileMode `json:"mode"`
+	Size  uint64      `json:"size"`
+	Uid   uint32      `json:"uid"`
+	Gid   uint32      `json:"gid"`
+	Atime time.Time   `json:"atime"`
+	Mtime time.Time   `json:"mtime"`
+	Ctime time.Time   `json:"ctime"`
 }
 
 type FileCreate struct {
@@ -672,7 +672,7 @@ func readFileInfo(r *bytes.Reader) (FileInfo, error) {
 	if err := binary.Read(r, endian.Native, &m); err != nil {
 		return fi, fmt.Errorf("read mode: %v", err)
 	}
-	fi.Mode = strconv.FormatUint(uint64(m), 8)
+	fi.Mode = os.FileMode(m)
 
 	if err := binary.Read(r, endian.Native, &fi.Size); err != nil {
 		return fi, fmt.Errorf("read size: %v", err)
