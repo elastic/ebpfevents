@@ -1,12 +1,12 @@
 module github.com/elastic/ebpfevents
 
-go 1.21.1
+go 1.20
 
 require (
-	github.com/cilium/ebpf v0.11.1-0.20231010125736-9598c011294a
+	github.com/cilium/ebpf v0.12.3
 	github.com/elastic/go-licenser v0.4.1
 	go.elastic.co/go-licence-detector v0.6.0
-	golang.org/x/sys v0.6.0
+	golang.org/x/sys v0.14.1-0.20231108175955-e4099bfacb8c
 )
 
 require (
