@@ -36,7 +36,6 @@ const (
 	procVersionSignature = "/proc/version_signature"
 )
 
-// TODO(matt): this is implemented in cloud-defend
 type version struct {
 	maj, min, patch int
 }

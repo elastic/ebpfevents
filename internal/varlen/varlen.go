@@ -26,8 +26,6 @@ import (
 	"github.com/elastic/ebpfevents/internal/endian"
 )
 
-// TODO(matt): this is implemented in cloud-defend
-
 type (
 	Field uint32
 	Map   map[Field]any
