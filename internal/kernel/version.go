@@ -115,15 +115,17 @@ func kernelVersion() (version, error) {
 		//
 		// Ubuntu provides a file under procfs that reports the actual upstream
 		// source version, so we use that instead if it exists.
-		f, err := os.Open(procVersionSignature)
-		if err != nil {
-			return v, fmt.Errorf("open %s: %v", procVersionSignature, err)
-		}
-		defer f.Close()
-
-		_, err = fmt.Fscanf(f, "%*s %*s %d.%d.%d\n", &v.maj, &v.min, &v.patch)
+		content, err := os.ReadFile(procVersionSignature)
 		if err != nil {
 			return v, fmt.Errorf("read %s: %v", procVersionSignature, err)
+		}
+
+		fmt.Printf("GREPME: %s\n", string(content))
+
+		info := strings.Fields(string(content))
+		v, err = new(strings.Split(info[2], "-")[0])
+		if err != nil {
+			return v, fmt.Errorf("parse %s: %v", procVersionSignature, err)
 		}
 
 		return v, nil

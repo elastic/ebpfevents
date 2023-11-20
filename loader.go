@@ -95,7 +95,7 @@ func (l *Loader) loadBpf() error {
 
 	var opts ebpf.CollectionOptions
 	opts.Programs.LogSize = 1 << 26
-	opts.Programs.LogLevel = (ebpf.LogLevelInstruction | ebpf.LogLevelBranch)
+	opts.Programs.LogLevel = ebpf.LogLevelInstruction
 
 	if err := spec.LoadAndAssign(&l.objs, &opts); err != nil {
 		var ve *ebpf.VerifierError
