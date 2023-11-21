@@ -1,0 +1,12 @@
+steps:
+  - label: ":bathtub: Lint"
+    key: "lint"
+    command: ".buildkite/lint.sh"
+    agents:
+      image: "golangci/golangci-lint:v1.55.2"
+
+  - label: ":test_tube: Test"
+    key: "test"
+    command: ".buildkite/test.sh"
+    agents:
+      image: "docker.elastic.co/ci-agent-images/sec-linux-platform/ebpfevents-tester@sha256:e3d8e8e9bede39be4f2f374e0ae1502dd6f8a1347c66046faa78dc105d051dd0"

@@ -120,8 +120,6 @@ func kernelVersion() (version, error) {
 			return v, fmt.Errorf("read %s: %v", procVersionSignature, err)
 		}
 
-		fmt.Printf("GREPME: %s\n", string(content))
-
 		info := strings.Fields(string(content))
 		v, err = new(strings.Split(info[2], "-")[0])
 		if err != nil {
