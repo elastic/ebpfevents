@@ -31,7 +31,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 
-	"github.com/elastic/ebpfevents/internal/kernel"
+	"github.com/elastic/ebpfevents/pkg/kernel"
 )
 
 type Loader struct {
@@ -47,6 +47,13 @@ type Loader struct {
 	// .rodata constants
 	constants map[string]any
 }
+
+const (
+	argIdxFmt      = "arg__%s__%s__"    // func, arg
+	retIdxFmt      = "ret__%s__"        // func
+	argExistsFmt   = "exists__%s__%s__" // func, arg
+	fieldOffsetFmt = "off__%s__%s__"    // struct, field
+)
 
 func NewLoader() (*Loader, error) {
 	l := &Loader{
@@ -95,7 +102,7 @@ func (l *Loader) loadBpf() error {
 
 	var opts ebpf.CollectionOptions
 	opts.Programs.LogSize = 1 << 26
-	opts.Programs.LogLevel = (ebpf.LogLevelInstruction | ebpf.LogLevelBranch)
+	opts.Programs.LogLevel = ebpf.LogLevelInstruction
 
 	if err := spec.LoadAndAssign(&l.objs, &opts); err != nil {
 		var ve *ebpf.VerifierError
@@ -289,5 +296,80 @@ func (l *Loader) Close() error {
 	for _, lnk := range l.links {
 		lnk.Close()
 	}
+	return nil
+}
+
+func (l *Loader) fillArgIndex(funcName, argName string) error {
+	name := fmt.Sprintf(argIdxFmt, funcName, argName)
+
+	idx, err := kernel.ArgIdxByFunc(l.kbtf, funcName, argName)
+	if err != nil {
+		return fmt.Errorf("fill %s: %v", name, err)
+	}
+	l.constants[name] = idx
+
+	return nil
+}
+
+func (l *Loader) fillRetIndex(funcName string) error {
+	name := fmt.Sprintf(retIdxFmt, funcName)
+
+	idx, err := kernel.RetIdxByFunc(l.kbtf, funcName)
+	if err != nil {
+		return fmt.Errorf("fill %s: %v", name, err)
+	}
+	l.constants[name] = idx
+
+	return nil
+}
+
+func (l *Loader) fillArgExists(funcName, argName string) error {
+	name := fmt.Sprintf(argExistsFmt, funcName, argName)
+	l.constants[name] = kernel.ArgExists(l.kbtf, funcName, argName)
+	return nil
+}
+
+func (l *Loader) fillFieldOffset(structName, fieldName string) error {
+	name := fmt.Sprintf(fieldOffsetFmt, structName, fieldName)
+
+	off, err := kernel.FieldOffset(l.kbtf, structName, fieldName)
+	if err != nil {
+		return fmt.Errorf("fill %s: %v", name, err)
+	}
+	l.constants[name] = off
+
+	return nil
+}
+
+func (l *Loader) fillIndexes() error {
+	if err := l.fillArgIndex("vfs_unlink", "dentry"); err != nil {
+		return fmt.Errorf("fill arg index: %v", err)
+	}
+	if err := l.fillRetIndex("vfs_unlink"); err != nil {
+		return fmt.Errorf("fill ret index: %v", err)
+	}
+
+	if kernel.ArgExists(l.kbtf, "vfs_rename", "rd") {
+		if err := l.fillArgExists("vfs_rename", "rd"); err != nil {
+			return fmt.Errorf("fill arg exists: %v", err)
+		}
+	} else {
+		if err := l.fillArgIndex("vfs_rename", "old_dentry"); err != nil {
+			return fmt.Errorf("fill arg index: %v", err)
+		}
+		if err := l.fillArgIndex("vfs_rename", "new_dentry"); err != nil {
+			return fmt.Errorf("fill arg index: %v", err)
+		}
+	}
+	if err := l.fillRetIndex("vfs_rename"); err != nil {
+		return fmt.Errorf("fill ret index: %v", err)
+	}
+
+	if kernel.FieldExists(l.kbtf, "iov_iter", "__iov") {
+		if err := l.fillFieldOffset("iov_iter", "__iov"); err != nil {
+			return fmt.Errorf("fill field offset: %v", err)
+		}
+	}
+
 	return nil
 }

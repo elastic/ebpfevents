@@ -44,18 +44,6 @@ notice:
 		-noticeOut NOTICE.txt \
 		-depsOut ""
 
-dependency-report:
-	@echo "Generate dependencies.csv"
-	go mod tidy
-	go mod download
-	go list -m -json all | go run go.elastic.co/go-licence-detector \
-		-includeIndirect \
-		-rules "tools/notice/rules.json" \
-		-overrides "tools/notice/overrides.json" \
-		-noticeTemplate "tools/notice/dependencies.csv.tmpl" \
-		-noticeOut dependencies.csv \
-		-depsOut ""
-
 write-license-headers:
 	@echo "Write license headers"
 	go run github.com/elastic/go-licenser \
@@ -63,5 +51,5 @@ write-license-headers:
 		-license ASL2 \
 		-licensor "Elasticsearch B.V." \
 		-exclude bpf_bpfel* \
-		-exclude ebpf \
+		-exclude "ebpf,bpf_bpfel_arm64.go,bpf_bpfel_x86.go" \
 		.

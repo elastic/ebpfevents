@@ -28,8 +28,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/elastic/ebpfevents/internal/endian"
-	"github.com/elastic/ebpfevents/internal/varlen"
+	"github.com/elastic/ebpfevents/pkg/endian"
+	"github.com/elastic/ebpfevents/pkg/varlen"
 )
 
 //go:generate stringer -linecomment=true -type=EventType,Transport,Family,FileType -output=event_string.go

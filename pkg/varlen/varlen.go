@@ -23,10 +23,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elastic/ebpfevents/internal/endian"
+	"github.com/elastic/ebpfevents/pkg/endian"
 )
-
-// TODO(matt): this is implemented in cloud-defend
 
 type (
 	Field uint32
