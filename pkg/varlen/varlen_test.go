@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/elastic/ebpfevents/internal/endian"
-	"github.com/elastic/ebpfevents/internal/varlen"
+	"github.com/elastic/ebpfevents/pkg/endian"
+	"github.com/elastic/ebpfevents/pkg/varlen"
 )
 
 func writeVarlenFields(t *testing.T, w *bufio.Writer, m varlen.Map) {

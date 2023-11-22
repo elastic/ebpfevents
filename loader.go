@@ -31,7 +31,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 
-	"github.com/elastic/ebpfevents/internal/kernel"
+	"github.com/elastic/ebpfevents/pkg/kernel"
 )
 
 type Loader struct {

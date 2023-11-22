@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elastic/ebpfevents/internal/endian"
+	"github.com/elastic/ebpfevents/pkg/endian"
 )
 
 type (
