@@ -44,18 +44,6 @@ notice:
 		-noticeOut NOTICE.txt \
 		-depsOut ""
 
-dependency-report:
-	@echo "Generate dependencies.csv"
-	go mod tidy
-	go mod download
-	go list -m -json all | go run go.elastic.co/go-licence-detector \
-		-includeIndirect \
-		-rules "tools/notice/rules.json" \
-		-overrides "tools/notice/overrides.json" \
-		-noticeTemplate "tools/notice/dependencies.csv.tmpl" \
-		-noticeOut dependencies.csv \
-		-depsOut ""
-
 write-license-headers:
 	@echo "Write license headers"
 	go run github.com/elastic/go-licenser \
