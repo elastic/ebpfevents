@@ -24,9 +24,8 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/elastic/ebpfevents/pkg/endian"
 	"github.com/elastic/ebpfevents/pkg/varlen"
@@ -37,8 +36,6 @@ import (
 type EventUnmarshaler interface {
 	Unmarshal(*bytes.Reader) error
 }
-
-const TaskCommLen = 16
 
 type EventType uint64
 
@@ -610,11 +607,22 @@ func readBody(r *bytes.Reader, e EventUnmarshaler, ev *Event) error {
 }
 
 func readTaskComm(r *bytes.Reader) (string, error) {
-	var buf [TaskCommLen]byte
-	if err := binary.Read(r, endian.Native, &buf); err != nil {
-		return "", fmt.Errorf("read comm: %v", err)
+	var s strings.Builder
+
+	for {
+		c, err := r.ReadByte()
+		if err != nil {
+			return "", fmt.Errorf("read comm: %v", err)
+		}
+		if c == 0 {
+			break
+		}
+		if err := s.WriteByte(c); err != nil {
+			return "", fmt.Errorf("write comm: %v", err)
+		}
 	}
-	return unix.ByteSliceToString(buf[:]), nil
+
+	return s.String(), nil
 }
 
 func readNetInfo(r *bytes.Reader) (NetInfo, error) {
@@ -627,17 +635,32 @@ func readNetInfo(r *bytes.Reader) (NetInfo, error) {
 		return ni, fmt.Errorf("read family: %v", err)
 	}
 
-	var saddr [16]byte
-	if err := binary.Read(r, endian.Native, &saddr); err != nil {
-		return ni, fmt.Errorf("read saddr/6: %v", err)
-	}
-	ni.SourceAddress = netip.AddrFrom16(saddr)
+	switch ni.Family {
+	case AFInet:
+		var tmp [4]byte
 
-	var daddr [16]byte
-	if err := binary.Read(r, endian.Native, &daddr); err != nil {
-		return ni, fmt.Errorf("read daddr/6: %v", err)
+		if err := binary.Read(r, endian.Native, &tmp); err != nil {
+			return ni, fmt.Errorf("read saddr: %v", err)
+		}
+		ni.SourceAddress = netip.AddrFrom4(tmp)
+
+		if err := binary.Read(r, endian.Native, &tmp); err != nil {
+			return ni, fmt.Errorf("read daddr: %v", err)
+		}
+		ni.DestinationAddress = netip.AddrFrom4(tmp)
+	case AFInet6:
+		var tmp [16]byte
+
+		if err := binary.Read(r, endian.Native, &tmp); err != nil {
+			return ni, fmt.Errorf("read saddr6: %v", err)
+		}
+		ni.SourceAddress = netip.AddrFrom16(tmp)
+
+		if err := binary.Read(r, endian.Native, &tmp); err != nil {
+			return ni, fmt.Errorf("read daddr6: %v", err)
+		}
+		ni.DestinationAddress = netip.AddrFrom16(tmp)
 	}
-	ni.DestinationAddress = netip.AddrFrom16(daddr)
 
 	if err := binary.Read(r, endian.Native, &ni.SourcePort); err != nil {
 		return ni, fmt.Errorf("read sport: %v", err)

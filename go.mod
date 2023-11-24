@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/cilium/ebpf v0.12.3
 	github.com/elastic/go-licenser v0.4.1
+	github.com/go-faker/faker/v4 v4.2.0
 	github.com/stretchr/testify v1.6.1
 	go.elastic.co/go-licence-detector v0.6.0
 	golang.org/x/sys v0.14.1-0.20231108175955-e4099bfacb8c
@@ -23,5 +24,6 @@ require (
 	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2 // indirect
 	golang.org/x/mod v0.6.0 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
+	golang.org/x/text v0.3.7 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
