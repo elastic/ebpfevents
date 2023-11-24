@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+	"time"
 
 	"github.com/go-faker/faker/v4"
 	"github.com/stretchr/testify/assert"
@@ -210,6 +211,122 @@ func TestProcessTTYWrite(t *testing.T) {
 	writeProcessTTYWrite(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessTTYWrite
+	assert.Nil(t, newEvent.Unmarshal(bytes.NewReader(buf.Bytes())))
+	assert.Equal(t, expectedEvent, newEvent)
+}
+
+func writeFileInfo(t *testing.T, w *bufio.Writer, fi ebpfevents.FileInfo) {
+	t.Helper()
+
+	assert.Nil(t, binary.Write(w, endian.Native, fi.Type))
+	assert.Nil(t, binary.Write(w, endian.Native, fi.Inode))
+	assert.Nil(t, binary.Write(w, endian.Native, uint16(fi.Mode)))
+	assert.Nil(t, binary.Write(w, endian.Native, fi.Size))
+	assert.Nil(t, binary.Write(w, endian.Native, fi.Uid))
+	assert.Nil(t, binary.Write(w, endian.Native, fi.Gid))
+	assert.Nil(t, binary.Write(w, endian.Native, uint64(fi.Atime.Nanosecond())))
+	assert.Nil(t, binary.Write(w, endian.Native, uint64(fi.Mtime.Nanosecond())))
+	assert.Nil(t, binary.Write(w, endian.Native, uint64(fi.Ctime.Nanosecond())))
+
+	assert.Nil(t, w.Flush())
+}
+
+func writeFileCreate(t *testing.T, w *bufio.Writer, ev ebpfevents.FileCreate) {
+	t.Helper()
+
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	writeFileInfo(t, w, ev.Finfo)
+	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
+	_, err := w.WriteString(ev.Comm)
+	assert.Nil(t, err)
+	assert.Nil(t, w.WriteByte(0))
+	testutils.WriteVarlenFields(t, w, varlen.Map{
+		varlen.Path:              ev.Path,
+		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
+	})
+
+	assert.Nil(t, w.Flush())
+}
+
+func TestFileCreate(t *testing.T) {
+	buf := bytes.NewBuffer(nil)
+	w := bufio.NewWriter(buf)
+
+	var expectedEvent ebpfevents.FileCreate
+	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
+	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
+	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
+	writeFileCreate(t, w, expectedEvent)
+
+	var newEvent ebpfevents.FileCreate
+	assert.Nil(t, newEvent.Unmarshal(bytes.NewReader(buf.Bytes())))
+	assert.Equal(t, expectedEvent, newEvent)
+}
+
+func writeFileRename(t *testing.T, w *bufio.Writer, ev ebpfevents.FileRename) {
+	t.Helper()
+
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	writeFileInfo(t, w, ev.Finfo)
+	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
+	_, err := w.WriteString(ev.Comm)
+	assert.Nil(t, err)
+	assert.Nil(t, w.WriteByte(0))
+	testutils.WriteVarlenFields(t, w, varlen.Map{
+		varlen.OldPath:           ev.OldPath,
+		varlen.NewPath:           ev.NewPath,
+		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
+	})
+
+	assert.Nil(t, w.Flush())
+}
+
+func TestFileRename(t *testing.T) {
+	buf := bytes.NewBuffer(nil)
+	w := bufio.NewWriter(buf)
+
+	var expectedEvent ebpfevents.FileRename
+	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
+	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
+	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
+	writeFileRename(t, w, expectedEvent)
+
+	var newEvent ebpfevents.FileRename
+	assert.Nil(t, newEvent.Unmarshal(bytes.NewReader(buf.Bytes())))
+	assert.Equal(t, expectedEvent, newEvent)
+}
+
+func writeFileDelete(t *testing.T, w *bufio.Writer, ev ebpfevents.FileDelete) {
+	t.Helper()
+
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	writeFileInfo(t, w, ev.Finfo)
+	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
+	_, err := w.WriteString(ev.Comm)
+	assert.Nil(t, err)
+	assert.Nil(t, w.WriteByte(0))
+	testutils.WriteVarlenFields(t, w, varlen.Map{
+		varlen.Path:              ev.Path,
+		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
+	})
+
+	assert.Nil(t, w.Flush())
+}
+
+func TestFileDelete(t *testing.T) {
+	buf := bytes.NewBuffer(nil)
+	w := bufio.NewWriter(buf)
+
+	var expectedEvent ebpfevents.FileDelete
+	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
+	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
+	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
+	writeFileDelete(t, w, expectedEvent)
+
+	var newEvent ebpfevents.FileDelete
 	assert.Nil(t, newEvent.Unmarshal(bytes.NewReader(buf.Bytes())))
 	assert.Equal(t, expectedEvent, newEvent)
 }
