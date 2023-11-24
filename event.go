@@ -635,17 +635,32 @@ func readNetInfo(r *bytes.Reader) (NetInfo, error) {
 		return ni, fmt.Errorf("read family: %v", err)
 	}
 
-	var saddr [16]byte
-	if err := binary.Read(r, endian.Native, &saddr); err != nil {
-		return ni, fmt.Errorf("read saddr/6: %v", err)
-	}
-	ni.SourceAddress = netip.AddrFrom16(saddr)
+	switch ni.Family {
+	case AFInet:
+		var tmp [4]byte
 
-	var daddr [16]byte
-	if err := binary.Read(r, endian.Native, &daddr); err != nil {
-		return ni, fmt.Errorf("read daddr/6: %v", err)
+		if err := binary.Read(r, endian.Native, &tmp); err != nil {
+			return ni, fmt.Errorf("read saddr: %v", err)
+		}
+		ni.SourceAddress = netip.AddrFrom4(tmp)
+
+		if err := binary.Read(r, endian.Native, &tmp); err != nil {
+			return ni, fmt.Errorf("read daddr: %v", err)
+		}
+		ni.DestinationAddress = netip.AddrFrom4(tmp)
+	case AFInet6:
+		var tmp [16]byte
+
+		if err := binary.Read(r, endian.Native, &tmp); err != nil {
+			return ni, fmt.Errorf("read saddr6: %v", err)
+		}
+		ni.SourceAddress = netip.AddrFrom16(tmp)
+
+		if err := binary.Read(r, endian.Native, &tmp); err != nil {
+			return ni, fmt.Errorf("read daddr6: %v", err)
+		}
+		ni.DestinationAddress = netip.AddrFrom16(tmp)
 	}
-	ni.DestinationAddress = netip.AddrFrom16(daddr)
 
 	if err := binary.Read(r, endian.Native, &ni.SourcePort); err != nil {
 		return ni, fmt.Errorf("read sport: %v", err)

@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -327,6 +328,55 @@ func TestFileDelete(t *testing.T) {
 	writeFileDelete(t, w, expectedEvent)
 
 	var newEvent ebpfevents.FileDelete
+	assert.Nil(t, newEvent.Unmarshal(bytes.NewReader(buf.Bytes())))
+	assert.Equal(t, expectedEvent, newEvent)
+}
+
+func writeNetInfo(t *testing.T, w *bufio.Writer, ni ebpfevents.NetInfo) {
+	t.Helper()
+
+	assert.Nil(t, binary.Write(w, endian.Native, uint32(ni.Transport)))
+	assert.Nil(t, binary.Write(w, endian.Native, uint32(ni.Family)))
+	assert.Nil(t, binary.Write(w, endian.Native, ni.SourceAddress.AsSlice()))
+	assert.Nil(t, binary.Write(w, endian.Native, ni.DestinationAddress.AsSlice()))
+	assert.Nil(t, binary.Write(w, endian.Native, ni.SourcePort))
+	assert.Nil(t, binary.Write(w, endian.Native, ni.DestinationPort))
+	assert.Nil(t, binary.Write(w, endian.Native, ni.NetNs))
+	assert.Nil(t, binary.Write(w, endian.Native, ni.BytesSent))
+	assert.Nil(t, binary.Write(w, endian.Native, ni.BytesReceived))
+
+	assert.Nil(t, w.Flush())
+}
+
+func writeNetEvent(t *testing.T, w *bufio.Writer, ev ebpfevents.NetEvent) {
+	t.Helper()
+
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	writeNetInfo(t, w, ev.Net)
+	_, err := w.WriteString(ev.Comm)
+	assert.Nil(t, err)
+	assert.Nil(t, w.WriteByte(0))
+
+	assert.Nil(t, w.Flush())
+}
+
+func TestNetEvent(t *testing.T) {
+	buf := bytes.NewBuffer(nil)
+	w := bufio.NewWriter(buf)
+
+	var expectedEvent ebpfevents.NetEvent
+	assert.Nil(t, faker.FakeData(&expectedEvent))
+	switch expectedEvent.Net.Family {
+	case ebpfevents.AFInet:
+		expectedEvent.Net.SourceAddress = netip.MustParseAddr("1.2.3.4")
+		expectedEvent.Net.DestinationAddress = netip.MustParseAddr("5.6.7.8")
+	case ebpfevents.AFInet6:
+		expectedEvent.Net.SourceAddress = netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7333")
+		expectedEvent.Net.DestinationAddress = netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334")
+	}
+	writeNetEvent(t, w, expectedEvent)
+
+	var newEvent ebpfevents.NetEvent
 	assert.Nil(t, newEvent.Unmarshal(bytes.NewReader(buf.Bytes())))
 	assert.Equal(t, expectedEvent, newEvent)
 }
