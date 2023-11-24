@@ -24,9 +24,8 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/elastic/ebpfevents/pkg/endian"
 	"github.com/elastic/ebpfevents/pkg/varlen"
@@ -37,8 +36,6 @@ import (
 type EventUnmarshaler interface {
 	Unmarshal(*bytes.Reader) error
 }
-
-const TaskCommLen = 16
 
 type EventType uint64
 
@@ -610,11 +607,22 @@ func readBody(r *bytes.Reader, e EventUnmarshaler, ev *Event) error {
 }
 
 func readTaskComm(r *bytes.Reader) (string, error) {
-	var buf [TaskCommLen]byte
-	if err := binary.Read(r, endian.Native, &buf); err != nil {
-		return "", fmt.Errorf("read comm: %v", err)
+	var s strings.Builder
+
+	for {
+		c, err := r.ReadByte()
+		if err != nil {
+			return "", fmt.Errorf("read comm: %v", err)
+		}
+		if c == 0 {
+			break
+		}
+		if err := s.WriteByte(c); err != nil {
+			return "", fmt.Errorf("write comm: %v", err)
+		}
 	}
-	return unix.ByteSliceToString(buf[:]), nil
+
+	return s.String(), nil
 }
 
 func readNetInfo(r *bytes.Reader) (NetInfo, error) {
