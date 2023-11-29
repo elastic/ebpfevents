@@ -51,5 +51,6 @@ write-license-headers:
 		-license ASL2 \
 		-licensor "Elasticsearch B.V." \
 		-exclude bpf_bpfel* \
-		-exclude "ebpf,bpf_bpfel_arm64.go,bpf_bpfel_x86.go" \
+		-exclude ebpf \
+		-exclude *_string.go \
 		.

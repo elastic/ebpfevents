@@ -116,6 +116,8 @@ type ProcessFork struct {
 	CgroupPath string   `json:"cgroup_path"`
 }
 
+const TaskCommLen = 16
+
 func (e *ProcessFork) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.ParentPids); err != nil {
 		return fmt.Errorf("read parent pids: %v", err)
@@ -577,7 +579,7 @@ func NewEvent(raw []byte) (*Event, error) {
 		return nil, fmt.Errorf("unknown event type %d", ev.Header.Type)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read event body: %v", err)
+		return nil, fmt.Errorf("read event body (%s): %v", ev.Type.String(), err)
 	}
 
 	return &ev, nil
@@ -609,13 +611,13 @@ func readBody(r *bytes.Reader, e EventUnmarshaler, ev *Event) error {
 func readTaskComm(r *bytes.Reader) (string, error) {
 	var s strings.Builder
 
-	for {
+	for i := 0; i < TaskCommLen; i++ {
 		c, err := r.ReadByte()
 		if err != nil {
 			return "", fmt.Errorf("read comm: %v", err)
 		}
 		if c == 0 {
-			break
+			continue
 		}
 		if err := s.WriteByte(c); err != nil {
 			return "", fmt.Errorf("write comm: %v", err)
