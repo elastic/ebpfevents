@@ -209,6 +209,7 @@ func TestProcessTTYWrite(t *testing.T) {
 
 	var expectedEvent ebpfevents.ProcessTTYWrite
 	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
 	writeProcessTTYWrite(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessTTYWrite
@@ -255,6 +256,7 @@ func TestFileCreate(t *testing.T) {
 
 	var expectedEvent ebpfevents.FileCreate
 	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
 	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
 	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
 	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
@@ -289,6 +291,7 @@ func TestFileRename(t *testing.T) {
 
 	var expectedEvent ebpfevents.FileRename
 	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
 	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
 	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
 	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
@@ -322,6 +325,7 @@ func TestFileDelete(t *testing.T) {
 
 	var expectedEvent ebpfevents.FileDelete
 	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
 	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
 	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
 	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
@@ -366,6 +370,7 @@ func TestNetEvent(t *testing.T) {
 
 	var expectedEvent ebpfevents.NetEvent
 	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
 	switch expectedEvent.Net.Family {
 	case ebpfevents.AFInet:
 		expectedEvent.Net.SourceAddress = netip.MustParseAddr("1.2.3.4")
