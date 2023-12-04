@@ -243,16 +243,7 @@ func (l *Loader) attachBpfProgs() error {
 	attach(&errs, attachRawTp(l.objs.SchedProcessFork))
 	attach(&errs, attachTracepoint("syscalls", "sys_exit_setsid", l.objs.TracepointSyscallsSysExitSetsid))
 
-	if len(errs) != 0 {
-		msg := "bpf program(s) attach failed: "
-		for _, err := range errs {
-			msg += err.Error()
-			msg += ";"
-		}
-		return errors.New(msg)
-	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 func (l *Loader) EventLoop(ctx context.Context, out chan<- Event, errs chan<- error) {
