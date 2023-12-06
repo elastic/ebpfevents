@@ -247,7 +247,7 @@ func (l *Loader) attachBpfProgs() error {
 }
 
 func (l *Loader) EventLoop(ctx context.Context, out chan<- Event, errs chan<- error) {
-	in := make(chan ringbuf.Record)
+	in := make(chan ringbuf.Record, l.objs.bpfMaps.Ringbuf.MaxEntries())
 
 	go func() {
 		for {
@@ -260,6 +260,7 @@ func (l *Loader) EventLoop(ctx context.Context, out chan<- Event, errs chan<- er
 					break
 				}
 				if err != nil {
+					errs <- err
 					continue
 				}
 				in <- record
