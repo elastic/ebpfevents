@@ -8,7 +8,6 @@ LIBBPF_VERSION=1.1.0
 # The headers we want
 prefix=libbpf-"$LIBBPF_VERSION"
 headers=(
-    "$prefix"/LICENSE.BSD-2-Clause
     "$prefix"/src/bpf_helper_defs.h
     "$prefix"/src/bpf_helpers.h
     "$prefix"/src/bpf_tracing.h

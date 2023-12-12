@@ -25,5 +25,4 @@ WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 License for the specific language governing permissions and limitations under
 the License.
 
-This repository includes code from libbpf at headers/bpf, which is dual-licensed
-under the BSD 2-Clause License OR GNU General Public license Version 2.
+This repository includes dependencies/submodules whose licenses are listed in [LICENSE.txt](LICENSE.txt).

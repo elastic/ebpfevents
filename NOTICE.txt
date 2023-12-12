@@ -1,9 +1,7 @@
 ebpfevents
 Copyright 2023-2023 Elasticsearch BV
 
-This repository includes code from libbpf at headers/bpf,
-which is dual-licensed under the BSD 2-Clause License OR GNU General Public
-license Version 2.
+This repository includes dependencies/submodules whose licenses are listed in LICENSE.txt.
 
 ================================================================================
 Third party libraries used by ebpfevents:
