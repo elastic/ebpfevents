@@ -2,7 +2,7 @@ The https://github.com/elastic/ebpfevents repository contains source code under
 various licenses:
 
 - Source code in the 'headers/bpf' directory, is dual-licensed under the GNU Lesser General
-  Public License version 2.1 (LICENSES/LGPL-2.1-or-later.txt) OR BSD-2-Clause license
+  Public License version 2.1 (LICENSES/LGPL-2.1-only.txt) OR BSD-2-Clause license
   (LICENSES/BSD-2-Clause.txt)
 
 - Source code in the 'ebpf' submodule is licensed with multiple licenses. Read more at
@@ -10,4 +10,7 @@ various licenses:
 
 - The binary files 'bpf_bpfel_x86.o' and 'bpf_bpfel_amd64.o' are compiled
   from dual-licensed GPL-2.0-only OR BSD-2-Clause licensed code, and are distributed with
-  the GPL-2.0-only License (licenses/GPL-2.0-only.txt).
+  the GPL-2.0-only License (LICENSES/GPL-2.0-only.txt).
+
+- Source code not listed in the previous points is licensed under the Apache License,
+  version 2 (LICENSES/Apache-2.0.txt).
