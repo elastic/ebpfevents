@@ -62,14 +62,22 @@ type bpfProgramSpecs struct {
 	FentryTtyWrite                  *ebpf.ProgramSpec `ebpf:"fentry__tty_write"`
 	FentryVfsRename                 *ebpf.ProgramSpec `ebpf:"fentry__vfs_rename"`
 	FentryVfsUnlink                 *ebpf.ProgramSpec `ebpf:"fentry__vfs_unlink"`
+	FexitChmodCommon                *ebpf.ProgramSpec `ebpf:"fexit__chmod_common"`
+	FexitChownCommon                *ebpf.ProgramSpec `ebpf:"fexit__chown_common"`
 	FexitDoFilpOpen                 *ebpf.ProgramSpec `ebpf:"fexit__do_filp_open"`
+	FexitDoTruncate                 *ebpf.ProgramSpec `ebpf:"fexit__do_truncate"`
 	FexitInetCskAccept              *ebpf.ProgramSpec `ebpf:"fexit__inet_csk_accept"`
 	FexitTcpV4Connect               *ebpf.ProgramSpec `ebpf:"fexit__tcp_v4_connect"`
 	FexitTcpV6Connect               *ebpf.ProgramSpec `ebpf:"fexit__tcp_v6_connect"`
 	FexitVfsRename                  *ebpf.ProgramSpec `ebpf:"fexit__vfs_rename"`
 	FexitVfsUnlink                  *ebpf.ProgramSpec `ebpf:"fexit__vfs_unlink"`
+	FexitVfsWrite                   *ebpf.ProgramSpec `ebpf:"fexit__vfs_write"`
+	FexitVfsWritev                  *ebpf.ProgramSpec `ebpf:"fexit__vfs_writev"`
+	KprobeChmodCommon               *ebpf.ProgramSpec `ebpf:"kprobe__chmod_common"`
+	KprobeChownCommon               *ebpf.ProgramSpec `ebpf:"kprobe__chown_common"`
 	KprobeCommitCreds               *ebpf.ProgramSpec `ebpf:"kprobe__commit_creds"`
 	KprobeDoRenameat2               *ebpf.ProgramSpec `ebpf:"kprobe__do_renameat2"`
+	KprobeDoTruncate                *ebpf.ProgramSpec `ebpf:"kprobe__do_truncate"`
 	KprobeDoUnlinkat                *ebpf.ProgramSpec `ebpf:"kprobe__do_unlinkat"`
 	KprobeMntWantWrite              *ebpf.ProgramSpec `ebpf:"kprobe__mnt_want_write"`
 	KprobeTaskstatsExit             *ebpf.ProgramSpec `ebpf:"kprobe__taskstats_exit"`
@@ -79,12 +87,19 @@ type bpfProgramSpecs struct {
 	KprobeTtyWrite                  *ebpf.ProgramSpec `ebpf:"kprobe__tty_write"`
 	KprobeVfsRename                 *ebpf.ProgramSpec `ebpf:"kprobe__vfs_rename"`
 	KprobeVfsUnlink                 *ebpf.ProgramSpec `ebpf:"kprobe__vfs_unlink"`
+	KprobeVfsWrite                  *ebpf.ProgramSpec `ebpf:"kprobe__vfs_write"`
+	KprobeVfsWritev                 *ebpf.ProgramSpec `ebpf:"kprobe__vfs_writev"`
+	KretprobeChmodCommon            *ebpf.ProgramSpec `ebpf:"kretprobe__chmod_common"`
+	KretprobeChownCommon            *ebpf.ProgramSpec `ebpf:"kretprobe__chown_common"`
 	KretprobeDoFilpOpen             *ebpf.ProgramSpec `ebpf:"kretprobe__do_filp_open"`
+	KretprobeDoTruncate             *ebpf.ProgramSpec `ebpf:"kretprobe__do_truncate"`
 	KretprobeInetCskAccept          *ebpf.ProgramSpec `ebpf:"kretprobe__inet_csk_accept"`
 	KretprobeTcpV4Connect           *ebpf.ProgramSpec `ebpf:"kretprobe__tcp_v4_connect"`
 	KretprobeTcpV6Connect           *ebpf.ProgramSpec `ebpf:"kretprobe__tcp_v6_connect"`
 	KretprobeVfsRename              *ebpf.ProgramSpec `ebpf:"kretprobe__vfs_rename"`
 	KretprobeVfsUnlink              *ebpf.ProgramSpec `ebpf:"kretprobe__vfs_unlink"`
+	KretprobeVfsWrite               *ebpf.ProgramSpec `ebpf:"kretprobe__vfs_write"`
+	KretprobeVfsWritev              *ebpf.ProgramSpec `ebpf:"kretprobe__vfs_writev"`
 	SchedProcessExec                *ebpf.ProgramSpec `ebpf:"sched_process_exec"`
 	SchedProcessFork                *ebpf.ProgramSpec `ebpf:"sched_process_fork"`
 	TracepointSyscallsSysExitSetsid *ebpf.ProgramSpec `ebpf:"tracepoint_syscalls_sys_exit_setsid"`
@@ -159,14 +174,22 @@ type bpfPrograms struct {
 	FentryTtyWrite                  *ebpf.Program `ebpf:"fentry__tty_write"`
 	FentryVfsRename                 *ebpf.Program `ebpf:"fentry__vfs_rename"`
 	FentryVfsUnlink                 *ebpf.Program `ebpf:"fentry__vfs_unlink"`
+	FexitChmodCommon                *ebpf.Program `ebpf:"fexit__chmod_common"`
+	FexitChownCommon                *ebpf.Program `ebpf:"fexit__chown_common"`
 	FexitDoFilpOpen                 *ebpf.Program `ebpf:"fexit__do_filp_open"`
+	FexitDoTruncate                 *ebpf.Program `ebpf:"fexit__do_truncate"`
 	FexitInetCskAccept              *ebpf.Program `ebpf:"fexit__inet_csk_accept"`
 	FexitTcpV4Connect               *ebpf.Program `ebpf:"fexit__tcp_v4_connect"`
 	FexitTcpV6Connect               *ebpf.Program `ebpf:"fexit__tcp_v6_connect"`
 	FexitVfsRename                  *ebpf.Program `ebpf:"fexit__vfs_rename"`
 	FexitVfsUnlink                  *ebpf.Program `ebpf:"fexit__vfs_unlink"`
+	FexitVfsWrite                   *ebpf.Program `ebpf:"fexit__vfs_write"`
+	FexitVfsWritev                  *ebpf.Program `ebpf:"fexit__vfs_writev"`
+	KprobeChmodCommon               *ebpf.Program `ebpf:"kprobe__chmod_common"`
+	KprobeChownCommon               *ebpf.Program `ebpf:"kprobe__chown_common"`
 	KprobeCommitCreds               *ebpf.Program `ebpf:"kprobe__commit_creds"`
 	KprobeDoRenameat2               *ebpf.Program `ebpf:"kprobe__do_renameat2"`
+	KprobeDoTruncate                *ebpf.Program `ebpf:"kprobe__do_truncate"`
 	KprobeDoUnlinkat                *ebpf.Program `ebpf:"kprobe__do_unlinkat"`
 	KprobeMntWantWrite              *ebpf.Program `ebpf:"kprobe__mnt_want_write"`
 	KprobeTaskstatsExit             *ebpf.Program `ebpf:"kprobe__taskstats_exit"`
@@ -176,12 +199,19 @@ type bpfPrograms struct {
 	KprobeTtyWrite                  *ebpf.Program `ebpf:"kprobe__tty_write"`
 	KprobeVfsRename                 *ebpf.Program `ebpf:"kprobe__vfs_rename"`
 	KprobeVfsUnlink                 *ebpf.Program `ebpf:"kprobe__vfs_unlink"`
+	KprobeVfsWrite                  *ebpf.Program `ebpf:"kprobe__vfs_write"`
+	KprobeVfsWritev                 *ebpf.Program `ebpf:"kprobe__vfs_writev"`
+	KretprobeChmodCommon            *ebpf.Program `ebpf:"kretprobe__chmod_common"`
+	KretprobeChownCommon            *ebpf.Program `ebpf:"kretprobe__chown_common"`
 	KretprobeDoFilpOpen             *ebpf.Program `ebpf:"kretprobe__do_filp_open"`
+	KretprobeDoTruncate             *ebpf.Program `ebpf:"kretprobe__do_truncate"`
 	KretprobeInetCskAccept          *ebpf.Program `ebpf:"kretprobe__inet_csk_accept"`
 	KretprobeTcpV4Connect           *ebpf.Program `ebpf:"kretprobe__tcp_v4_connect"`
 	KretprobeTcpV6Connect           *ebpf.Program `ebpf:"kretprobe__tcp_v6_connect"`
 	KretprobeVfsRename              *ebpf.Program `ebpf:"kretprobe__vfs_rename"`
 	KretprobeVfsUnlink              *ebpf.Program `ebpf:"kretprobe__vfs_unlink"`
+	KretprobeVfsWrite               *ebpf.Program `ebpf:"kretprobe__vfs_write"`
+	KretprobeVfsWritev              *ebpf.Program `ebpf:"kretprobe__vfs_writev"`
 	SchedProcessExec                *ebpf.Program `ebpf:"sched_process_exec"`
 	SchedProcessFork                *ebpf.Program `ebpf:"sched_process_fork"`
 	TracepointSyscallsSysExitSetsid *ebpf.Program `ebpf:"tracepoint_syscalls_sys_exit_setsid"`
@@ -198,14 +228,22 @@ func (p *bpfPrograms) Close() error {
 		p.FentryTtyWrite,
 		p.FentryVfsRename,
 		p.FentryVfsUnlink,
+		p.FexitChmodCommon,
+		p.FexitChownCommon,
 		p.FexitDoFilpOpen,
+		p.FexitDoTruncate,
 		p.FexitInetCskAccept,
 		p.FexitTcpV4Connect,
 		p.FexitTcpV6Connect,
 		p.FexitVfsRename,
 		p.FexitVfsUnlink,
+		p.FexitVfsWrite,
+		p.FexitVfsWritev,
+		p.KprobeChmodCommon,
+		p.KprobeChownCommon,
 		p.KprobeCommitCreds,
 		p.KprobeDoRenameat2,
+		p.KprobeDoTruncate,
 		p.KprobeDoUnlinkat,
 		p.KprobeMntWantWrite,
 		p.KprobeTaskstatsExit,
@@ -215,12 +253,19 @@ func (p *bpfPrograms) Close() error {
 		p.KprobeTtyWrite,
 		p.KprobeVfsRename,
 		p.KprobeVfsUnlink,
+		p.KprobeVfsWrite,
+		p.KprobeVfsWritev,
+		p.KretprobeChmodCommon,
+		p.KretprobeChownCommon,
 		p.KretprobeDoFilpOpen,
+		p.KretprobeDoTruncate,
 		p.KretprobeInetCskAccept,
 		p.KretprobeTcpV4Connect,
 		p.KretprobeTcpV6Connect,
 		p.KretprobeVfsRename,
 		p.KretprobeVfsUnlink,
+		p.KretprobeVfsWrite,
+		p.KretprobeVfsWritev,
 		p.SchedProcessExec,
 		p.SchedProcessFork,
 		p.TracepointSyscallsSysExitSetsid,

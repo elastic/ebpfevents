@@ -180,70 +180,85 @@ func (l *Loader) attachBpfProgs() error {
 		return nil
 	}
 
-	attach := func(errs *[]error, err error) {
-		if err != nil {
-			*errs = append(*errs, err)
-		}
-	}
-	var errs []error
+	var err error
 
 	// do_renameat2
 	if l.hasBpfTramp && kernel.FuncExists(l.kbtf, "do_renameat2") {
-		attach(&errs, attachFentry(l.objs.FentryDoRenameat2))
+		err = errors.Join(err, attachFentry(l.objs.FentryDoRenameat2))
 	} else {
-		attach(&errs, attachKprobe("do_renameat2", l.objs.KprobeDoRenameat2))
+		err = errors.Join(err, attachKprobe("do_renameat2", l.objs.KprobeDoRenameat2))
 	}
 
 	// tcp_v6_connect
 	if l.hasBpfTramp && kernel.FuncExists(l.kbtf, "tcp_v6_connect") {
-		attach(&errs, attachFexit(l.objs.FexitTcpV6Connect))
+		err = errors.Join(err, attachFexit(l.objs.FexitTcpV6Connect))
 	} else {
-		attach(&errs, attachKprobe("tcp_v6_connect", l.objs.KprobeTcpV6Connect))
-		attach(&errs, attachKretprobe("tcp_v6_connect", l.objs.KretprobeTcpV6Connect))
+		err = errors.Join(err, attachKprobe("tcp_v6_connect", l.objs.KprobeTcpV6Connect))
+		err = errors.Join(err, attachKretprobe("tcp_v6_connect", l.objs.KretprobeTcpV6Connect))
 	}
 
 	// tty_write
 	if l.hasBpfTramp && kernel.FuncExists(l.kbtf, "tty_write") {
-		attach(&errs, attachFentry(l.objs.FentryTtyWrite))
+		err = errors.Join(err, attachFentry(l.objs.FentryTtyWrite))
 	} else {
-		attach(&errs, attachKprobe("tty_write", l.objs.KprobeTtyWrite))
+		err = errors.Join(err, attachKprobe("tty_write", l.objs.KprobeTtyWrite))
+	}
+
+	// vfs_writev
+	if l.hasBpfTramp && kernel.FuncExists(l.kbtf, "vfs_writev") {
+		err = errors.Join(err, attachFexit(l.objs.FexitVfsWritev))
+	} else {
+		err = errors.Join(err, attachKprobe("vfs_writev", l.objs.KprobeVfsWritev))
+		err = errors.Join(err, attachKretprobe("vfs_writev", l.objs.KretprobeVfsWritev))
 	}
 
 	// generic bpf trampoline
 	if l.hasBpfTramp {
-		attach(&errs, attachFentry(l.objs.FentryDoUnlinkat))
-		attach(&errs, attachFentry(l.objs.FentryMntWantWrite))
-		attach(&errs, attachFentry(l.objs.FentryVfsUnlink))
-		attach(&errs, attachFexit(l.objs.FexitVfsUnlink))
-		attach(&errs, attachFexit(l.objs.FexitDoFilpOpen))
-		attach(&errs, attachFentry(l.objs.FentryVfsRename))
-		attach(&errs, attachFexit(l.objs.FexitVfsRename))
-		attach(&errs, attachFentry(l.objs.FentryTaskstatsExit))
-		attach(&errs, attachFentry(l.objs.FentryCommitCreds))
-		attach(&errs, attachFexit(l.objs.FexitInetCskAccept))
-		attach(&errs, attachFexit(l.objs.FexitTcpV4Connect))
-		attach(&errs, attachFentry(l.objs.FentryTcpClose))
+		err = errors.Join(err, attachFentry(l.objs.FentryDoUnlinkat))
+		err = errors.Join(err, attachFentry(l.objs.FentryMntWantWrite))
+		err = errors.Join(err, attachFentry(l.objs.FentryVfsUnlink))
+		err = errors.Join(err, attachFexit(l.objs.FexitVfsUnlink))
+		err = errors.Join(err, attachFexit(l.objs.FexitDoFilpOpen))
+		err = errors.Join(err, attachFentry(l.objs.FentryVfsRename))
+		err = errors.Join(err, attachFexit(l.objs.FexitVfsRename))
+		err = errors.Join(err, attachFentry(l.objs.FentryTaskstatsExit))
+		err = errors.Join(err, attachFentry(l.objs.FentryCommitCreds))
+		err = errors.Join(err, attachFexit(l.objs.FexitInetCskAccept))
+		err = errors.Join(err, attachFexit(l.objs.FexitTcpV4Connect))
+		err = errors.Join(err, attachFentry(l.objs.FentryTcpClose))
+		err = errors.Join(err, attachFexit(l.objs.FexitChmodCommon))
+		err = errors.Join(err, attachFexit(l.objs.FexitDoTruncate))
+		err = errors.Join(err, attachFexit(l.objs.FexitVfsWrite))
+		err = errors.Join(err, attachFexit(l.objs.FexitChownCommon))
 	} else {
-		attach(&errs, attachKprobe("do_unlinkat", l.objs.KprobeDoUnlinkat))
-		attach(&errs, attachKprobe("mnt_want_write", l.objs.KprobeMntWantWrite))
-		attach(&errs, attachKprobe("vfs_unlink", l.objs.KprobeVfsUnlink))
-		attach(&errs, attachKretprobe("vfs_unlink", l.objs.KretprobeVfsUnlink))
-		attach(&errs, attachKretprobe("do_filp_open", l.objs.KretprobeDoFilpOpen))
-		attach(&errs, attachKprobe("vfs_rename", l.objs.KprobeVfsRename))
-		attach(&errs, attachKretprobe("vfs_rename", l.objs.KretprobeVfsRename))
-		attach(&errs, attachKprobe("taskstats_exit", l.objs.KprobeTaskstatsExit))
-		attach(&errs, attachKprobe("commit_creds", l.objs.KprobeCommitCreds))
-		attach(&errs, attachKretprobe("inet_csk_accept", l.objs.KretprobeInetCskAccept))
-		attach(&errs, attachKprobe("tcp_v4_connect", l.objs.KprobeTcpV4Connect))
-		attach(&errs, attachKretprobe("tcp_v4_connect", l.objs.KretprobeTcpV4Connect))
-		attach(&errs, attachKprobe("tcp_close", l.objs.KprobeTcpClose))
+		err = errors.Join(err, attachKprobe("do_unlinkat", l.objs.KprobeDoUnlinkat))
+		err = errors.Join(err, attachKprobe("mnt_want_write", l.objs.KprobeMntWantWrite))
+		err = errors.Join(err, attachKprobe("vfs_unlink", l.objs.KprobeVfsUnlink))
+		err = errors.Join(err, attachKretprobe("vfs_unlink", l.objs.KretprobeVfsUnlink))
+		err = errors.Join(err, attachKretprobe("do_filp_open", l.objs.KretprobeDoFilpOpen))
+		err = errors.Join(err, attachKprobe("vfs_rename", l.objs.KprobeVfsRename))
+		err = errors.Join(err, attachKretprobe("vfs_rename", l.objs.KretprobeVfsRename))
+		err = errors.Join(err, attachKprobe("taskstats_exit", l.objs.KprobeTaskstatsExit))
+		err = errors.Join(err, attachKprobe("commit_creds", l.objs.KprobeCommitCreds))
+		err = errors.Join(err, attachKretprobe("inet_csk_accept", l.objs.KretprobeInetCskAccept))
+		err = errors.Join(err, attachKprobe("tcp_v4_connect", l.objs.KprobeTcpV4Connect))
+		err = errors.Join(err, attachKretprobe("tcp_v4_connect", l.objs.KretprobeTcpV4Connect))
+		err = errors.Join(err, attachKprobe("tcp_close", l.objs.KprobeTcpClose))
+		err = errors.Join(err, attachKprobe("chmod_common", l.objs.KprobeChmodCommon))
+		err = errors.Join(err, attachKretprobe("chmod_common", l.objs.KretprobeChmodCommon))
+		err = errors.Join(err, attachKprobe("do_truncate", l.objs.KprobeDoTruncate))
+		err = errors.Join(err, attachKretprobe("do_truncate", l.objs.KretprobeDoTruncate))
+		err = errors.Join(err, attachKprobe("vfs_write", l.objs.KprobeVfsWrite))
+		err = errors.Join(err, attachKretprobe("vfs_write", l.objs.KretprobeVfsWrite))
+		err = errors.Join(err, attachKprobe("chown_common", l.objs.KprobeChownCommon))
+		err = errors.Join(err, attachKretprobe("chown_common", l.objs.KretprobeChownCommon))
 	}
 
-	attach(&errs, attachRawTp(l.objs.SchedProcessExec))
-	attach(&errs, attachRawTp(l.objs.SchedProcessFork))
-	attach(&errs, attachTracepoint("syscalls", "sys_exit_setsid", l.objs.TracepointSyscallsSysExitSetsid))
+	err = errors.Join(err, attachRawTp(l.objs.SchedProcessExec))
+	err = errors.Join(err, attachRawTp(l.objs.SchedProcessFork))
+	err = errors.Join(err, attachTracepoint("syscalls", "sys_exit_setsid", l.objs.TracepointSyscallsSysExitSetsid))
 
-	return errors.Join(errs...)
+	return err
 }
 
 func (l *Loader) EventLoop(ctx context.Context, out chan<- Event, errs chan<- error) {
@@ -336,34 +351,24 @@ func (l *Loader) fillFieldOffset(structName, fieldName string) error {
 }
 
 func (l *Loader) fillIndexes() error {
-	if err := l.fillArgIndex("vfs_unlink", "dentry"); err != nil {
-		return fmt.Errorf("fill arg index: %v", err)
-	}
-	if err := l.fillRetIndex("vfs_unlink"); err != nil {
-		return fmt.Errorf("fill ret index: %v", err)
-	}
+	err := l.fillArgIndex("vfs_unlink", "dentry")
+	err = errors.Join(err, l.fillRetIndex("vfs_unlink"))
 
 	if kernel.ArgExists(l.kbtf, "vfs_rename", "rd") {
-		if err := l.fillArgExists("vfs_rename", "rd"); err != nil {
-			return fmt.Errorf("fill arg exists: %v", err)
-		}
+		err = errors.Join(err, l.fillArgExists("vfs_rename", "rd"))
 	} else {
-		if err := l.fillArgIndex("vfs_rename", "old_dentry"); err != nil {
-			return fmt.Errorf("fill arg index: %v", err)
-		}
-		if err := l.fillArgIndex("vfs_rename", "new_dentry"); err != nil {
-			return fmt.Errorf("fill arg index: %v", err)
-		}
+		err = errors.Join(err, l.fillArgIndex("vfs_rename", "old_dentry"))
+		err = errors.Join(err, l.fillArgIndex("vfs_rename", "new_dentry"))
 	}
-	if err := l.fillRetIndex("vfs_rename"); err != nil {
-		return fmt.Errorf("fill ret index: %v", err)
-	}
+
+	err = errors.Join(err, l.fillRetIndex("vfs_rename"))
 
 	if kernel.FieldExists(l.kbtf, "iov_iter", "__iov") {
-		if err := l.fillFieldOffset("iov_iter", "__iov"); err != nil {
-			return fmt.Errorf("fill field offset: %v", err)
-		}
+		err = errors.Join(err, l.fillFieldOffset("iov_iter", "__iov"))
 	}
 
-	return nil
+	err = errors.Join(err, l.fillArgIndex("do_truncate", "filp"))
+	err = errors.Join(err, l.fillRetIndex("do_truncate"))
+
+	return err
 }

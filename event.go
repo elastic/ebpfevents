@@ -31,7 +31,7 @@ import (
 	"github.com/elastic/ebpfevents/pkg/varlen"
 )
 
-//go:generate stringer -linecomment=true -type=EventType,Transport,Family,FileType -output=event_string.go
+//go:generate stringer -linecomment=true -type=EventType,Transport,Family,FileType,FileChangeType -output=event_string.go
 
 type EventUnmarshaler interface {
 	Unmarshal(*bytes.Reader) error
@@ -50,6 +50,7 @@ const (
 	EventTypeFileDelete                                             // FileDelete
 	EventTypeFileCreate                                             // FileCreate
 	EventTypeFileRename                                             // FileRename
+	EventTypeFileModify                                             // FileModify
 	EventTypeNetworkConnectionAccepted                              // NetConnectionAccepted
 	EventTypeNetworkConnectionAttempted                             // NetConnectionAttempted
 	EventTypeNetworkConnectionClosed                                // NetConnectionClosed
@@ -482,6 +483,69 @@ func (e *FileRename) Unmarshal(r *bytes.Reader) error {
 	return nil
 }
 
+type FileChangeType uint32
+
+const (
+	FileChangeTypeUnknown     FileChangeType = iota // Unknown
+	FileChangeTypeContent                           // Content
+	FileChangeTypePermissions                       // Permissions
+	FileChangeTypeOwner                             // Owner
+	FileChangeTypeXattrs                            // Xattrs
+)
+
+func (ft FileChangeType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ft.String())
+}
+
+type FileModify struct {
+	Pids              PidInfo        `json:"pids"`
+	Finfo             FileInfo       `json:"file_info"`
+	ChangeType        FileChangeType `json:"change_type"`
+	MountNs           uint32         `json:"mount_ns"`
+	Comm              string         `json:"comm"`
+	Path              string         `json:"path"`
+	SymlinkTargetPath string         `json:"symlink_target_path"`
+}
+
+func (e *FileModify) Unmarshal(r *bytes.Reader) error {
+	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
+		return fmt.Errorf("read pids: %v", err)
+	}
+
+	fi, err := readFileInfo(r)
+	if err != nil {
+		return fmt.Errorf("read file info: %v", err)
+	}
+	e.Finfo = fi
+
+	if err := binary.Read(r, endian.Native, &e.ChangeType); err != nil {
+		return fmt.Errorf("read change type: %v", err)
+	}
+
+	if err := binary.Read(r, endian.Native, &e.MountNs); err != nil {
+		return fmt.Errorf("read mount namespace: %v", err)
+	}
+
+	comm, err := readTaskComm(r)
+	if err != nil {
+		return err
+	}
+	e.Comm = comm
+
+	vlMap, err := varlen.DeserializeVarlenFields(r)
+	if err != nil {
+		return fmt.Errorf("deserialize varlen fields: %v", err)
+	}
+	if val, ok := vlMap[varlen.Path]; ok {
+		e.Path = val.(string)
+	}
+	if val, ok := vlMap[varlen.SymlinkTargetPath]; ok {
+		e.SymlinkTargetPath = val.(string)
+	}
+
+	return nil
+}
+
 type Transport uint32
 
 const (
@@ -571,6 +635,8 @@ func NewEvent(raw []byte) (*Event, error) {
 		err = readBody(r, &FileDelete{}, &ev)
 	case EventTypeFileCreate:
 		err = readBody(r, &FileCreate{}, &ev)
+	case EventTypeFileModify:
+		err = readBody(r, &FileModify{}, &ev)
 	case EventTypeFileRename:
 		err = readBody(r, &FileRename{}, &ev)
 	case EventTypeNetworkConnectionAccepted, EventTypeNetworkConnectionAttempted, EventTypeNetworkConnectionClosed:

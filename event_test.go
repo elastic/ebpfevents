@@ -336,6 +336,41 @@ func TestFileDelete(t *testing.T) {
 	assert.Equal(t, expectedEvent, newEvent)
 }
 
+func writeFileModify(t *testing.T, w *bufio.Writer, ev ebpfevents.FileModify) {
+	t.Helper()
+
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	writeFileInfo(t, w, ev.Finfo)
+	assert.Nil(t, binary.Write(w, endian.Native, ev.ChangeType))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
+	_, err := w.WriteString(ev.Comm)
+	assert.Nil(t, err)
+	assert.Nil(t, w.WriteByte(0))
+	testutils.WriteVarlenFields(t, w, varlen.Map{
+		varlen.Path:              ev.Path,
+		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
+	})
+
+	assert.Nil(t, w.Flush())
+}
+
+func TestFileModify(t *testing.T) {
+	buf := bytes.NewBuffer(nil)
+	w := bufio.NewWriter(buf)
+
+	var expectedEvent ebpfevents.FileModify
+	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
+	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
+	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
+	writeFileModify(t, w, expectedEvent)
+
+	var newEvent ebpfevents.FileModify
+	assert.Nil(t, newEvent.Unmarshal(bytes.NewReader(buf.Bytes())))
+	assert.Equal(t, expectedEvent, newEvent)
+}
+
 func writeNetInfo(t *testing.T, w *bufio.Writer, ni ebpfevents.NetInfo) {
 	t.Helper()
 
