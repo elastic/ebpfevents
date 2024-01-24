@@ -39,21 +39,23 @@ func main() {
 	}
 	log.Println("probes loaded!")
 
-	events := make(chan ebpfevents.Event)
-	errors := make(chan error)
-	go l.EventLoop(context.Background(), events, errors)
+	records := make(chan ebpfevents.Record, l.BufferLen())
+	go l.EventLoop(context.Background(), records)
 
 	for {
 		select {
-		case err := <-errors:
-			fmt.Printf("ERROR: %v\n", err)
-			continue
-		case ev := <-events:
-			evj, err := json.Marshal(ev)
+		case r := <-records:
+			if r.Error != nil {
+				fmt.Printf("ERROR: %v\n", r.Error)
+				continue
+			}
+
+			evj, err := json.Marshal(r.Event)
 			if err != nil {
 				log.Fatal(err)
 			}
 			fmt.Printf("%v\n", string(evj))
+
 			continue
 		case <-stop:
 			return
