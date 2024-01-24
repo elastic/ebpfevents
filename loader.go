@@ -261,41 +261,42 @@ func (l *Loader) attachBpfProgs() error {
 	return err
 }
 
-func (l *Loader) EventLoop(ctx context.Context, out chan<- Event, errs chan<- error) {
-	in := make(chan ringbuf.Record, l.objs.bpfMaps.Ringbuf.MaxEntries())
+type Record struct {
+	Event *Event
+	Error error
+}
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				record, err := l.reader.Read()
-				if errors.Is(err, ringbuf.ErrClosed) {
-					break
-				}
-				if err != nil {
-					errs <- err
-					continue
-				}
-				in <- record
-			}
-		}
-	}()
-
+func (l *Loader) EventLoop(ctx context.Context, out chan<- Record) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case record := <-in:
-			event, err := NewEvent(record.RawSample)
+		default:
+			var r Record
+
+			record, err := l.reader.Read()
+			if errors.Is(err, ringbuf.ErrClosed) {
+				break
+			}
 			if err != nil {
-				errs <- err
+				r.Error = err
+				out <- r
 				continue
 			}
-			out <- *event
+
+			event, err := NewEvent(record.RawSample)
+			if err != nil {
+				r.Error = err
+			}
+			r.Event = event
+
+			out <- r
 		}
 	}
+}
+
+func (l *Loader) BufferLen() uint32 {
+	return l.objs.bpfMaps.Ringbuf.MaxEntries()
 }
 
 func (l *Loader) Close() error {
@@ -369,6 +370,16 @@ func (l *Loader) fillIndexes() error {
 
 	err = errors.Join(err, l.fillArgIndex("do_truncate", "filp"))
 	err = errors.Join(err, l.fillRetIndex("do_truncate"))
+
+	if kernel.FieldExists(l.kbtf, "inode", "__i_atime") {
+		err = errors.Join(err, l.fillFieldOffset("inode", "__i_atime"))
+	}
+	if kernel.FieldExists(l.kbtf, "inode", "__i_mtime") {
+		err = errors.Join(err, l.fillFieldOffset("inode", "__i_mtime"))
+	}
+	if kernel.FieldExists(l.kbtf, "inode", "__i_ctime") {
+		err = errors.Join(err, l.fillFieldOffset("inode", "__i_ctime"))
+	}
 
 	return err
 }

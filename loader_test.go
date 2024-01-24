@@ -30,21 +30,22 @@ import (
 
 func TestNewLoader(t *testing.T) {
 	l, err := ebpfevents.NewLoader()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	defer l.Close()
 
-	events := make(chan ebpfevents.Event, 3)
-	errors := make(chan error, 3)
-	go l.EventLoop(context.Background(), events, errors)
+	records := make(chan ebpfevents.Record, 3)
+	go l.EventLoop(context.Background(), records)
 
 	// trigger an event
 	fname := "testloader"
 	_, err = os.Create(fname)
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	defer os.Remove(fname)
 
 	time.Sleep(time.Second)
 
-	assert.NotEmpty(t, events)
-	assert.Empty(t, errors)
+	assert.Equal(t, 3, len(records))
+	assert.NoError(t, (<-records).Error) // 1
+	assert.NoError(t, (<-records).Error) // 2
+	assert.NoError(t, (<-records).Error) // 3
 }
