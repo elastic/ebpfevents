@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/btf"
@@ -49,6 +50,8 @@ type Loader struct {
 	// .rodata constants
 	constants map[string]any
 }
+
+const rbTimeout = 3 * time.Second
 
 const (
 	argIdxFmt      = "arg__%s__%s__"    // func, arg
@@ -274,9 +277,13 @@ func (l *Loader) EventLoop(ctx context.Context, out chan<- Record) {
 		default:
 			var r Record
 
+			l.reader.SetDeadline(time.Now().Add(rbTimeout))
 			record, err := l.reader.Read()
 			if errors.Is(err, ringbuf.ErrClosed) {
 				break
+			}
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				continue
 			}
 			if err != nil {
 				r.Error = err
