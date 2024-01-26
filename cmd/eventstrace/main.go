@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/elastic/ebpfevents"
 )
@@ -33,11 +34,12 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
+	start := time.Now()
 	l, err := ebpfevents.NewLoader()
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("probes loaded!")
+	log.Printf("probes loaded in %v!\n", time.Since(start))
 
 	records := make(chan ebpfevents.Record, l.BufferLen())
 	go l.EventLoop(context.Background(), records)
