@@ -276,11 +276,6 @@ func (l *Loader) attachBpfProgs() error {
 	return err
 }
 
-type Record struct {
-	Event *Event
-	Error error
-}
-
 func (l *Loader) EventLoop(ctx context.Context, out chan<- Record) {
 	for {
 		select {
