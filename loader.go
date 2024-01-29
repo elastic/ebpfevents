@@ -105,17 +105,29 @@ func (l *Loader) loadBpf() error {
 	}
 	spec.Maps["event_buffer_map"].MaxEntries = uint32(runtime.NumCPU())
 
-	var opts ebpf.CollectionOptions
-	opts.Programs.LogSize = 1 << 26
-	opts.Programs.LogLevel = ebpf.LogLevelInstruction
-
-	if err := spec.LoadAndAssign(&l.objs, &opts); err != nil {
+	// Try to load all with default logsize
+	if err := spec.LoadAndAssign(&l.objs, nil); err != nil {
 		var ve *ebpf.VerifierError
 		if errors.As(err, &ve) {
-			for _, line := range ve.Log {
-				fmt.Println(line)
+			// If we hit a verifier error, try to load all
+			// with an increased logsize. This heavily impacts
+			// load times, so do this only if already asserted
+			// the probe is failing to load.
+			var opts ebpf.CollectionOptions
+			opts.Programs.LogSize = 1 << 26
+			opts.Programs.LogLevel = ebpf.LogLevelInstruction
+
+			if err2 := spec.LoadAndAssign(&l.objs, &opts); err2 != nil {
+				var ve2 *ebpf.VerifierError
+				if errors.As(err2, &ve2) {
+					for _, line := range ve2.Log {
+						fmt.Println(line)
+					}
+					return fmt.Errorf("verifier error: %w", err2)
+				}
+				return fmt.Errorf("error loading bpf probes: %v", err2)
 			}
-			return fmt.Errorf("verifier error: %w", err)
+			return errors.New("expected error (???), probes load successfully at the second try")
 		}
 		return fmt.Errorf("error loading bpf probes: %v", err)
 	}
