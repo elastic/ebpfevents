@@ -33,6 +33,11 @@ import (
 
 //go:generate stringer -linecomment=true -type=EventType,Transport,Family,FileType,FileChangeType -output=event_string.go
 
+type Record struct {
+	Event *Event
+	Error error
+}
+
 type EventUnmarshaler interface {
 	Unmarshal(*bytes.Reader) error
 }
