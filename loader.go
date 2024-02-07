@@ -29,7 +29,6 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/btf"
-	"github.com/cilium/ebpf/features"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
@@ -76,10 +75,7 @@ func NewLoader() (*Loader, error) {
 		return nil, fmt.Errorf("load kernel btf: %v", err)
 	}
 	l.kbtf = kbtf
-
-	if err = features.HaveProgramType(ebpf.Tracing); err == nil {
-		l.hasBpfTramp = true
-	}
+	l.hasBpfTramp = kernel.HasBpfTramp()
 
 	if err := l.fillIndexes(); err != nil {
 		return nil, fmt.Errorf("fill indexes: %v", err)
