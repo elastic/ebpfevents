@@ -10,11 +10,11 @@ Third party libraries used by ebpfevents:
 
 --------------------------------------------------------------------------------
 Dependency : github.com/cilium/ebpf
-Version: v0.12.3
+Version: v0.13.2
 Licence type (autodetected): MIT
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/github.com/cilium/ebpf@v0.12.3/LICENSE:
+Contents of probable licence file $GOMODCACHE/github.com/cilium/ebpf@v0.13.2/LICENSE:
 
 MIT License
 
@@ -529,11 +529,11 @@ Contents of probable licence file $GOMODCACHE/go.elastic.co/go-licence-detector@
 
 --------------------------------------------------------------------------------
 Dependency : golang.org/x/sys
-Version: v0.14.1-0.20231108175955-e4099bfacb8c
+Version: v0.15.0
 Licence type (autodetected): BSD-3-Clause
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/golang.org/x/sys@v0.14.1-0.20231108175955-e4099bfacb8c/LICENSE:
+Contents of probable licence file $GOMODCACHE/golang.org/x/sys@v0.15.0/LICENSE:
 
 Copyright (c) 2009 The Go Authors. All rights reserved.
 
@@ -634,12 +634,12 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 
 --------------------------------------------------------------------------------
-Dependency : github.com/frankban/quicktest
-Version: v1.14.5
+Dependency : github.com/go-quicktest/qt
+Version: v1.101.0
 Licence type (autodetected): MIT
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/github.com/frankban/quicktest@v1.14.5/LICENSE:
+Contents of probable licence file $GOMODCACHE/github.com/go-quicktest/qt@v1.101.0/LICENSE:
 
 MIT License
 
@@ -1140,11 +1140,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 --------------------------------------------------------------------------------
 Dependency : github.com/rogpeppe/go-internal
-Version: v1.9.0
+Version: v1.11.0
 Licence type (autodetected): BSD-3-Clause
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/github.com/rogpeppe/go-internal@v1.9.0/LICENSE:
+Contents of probable licence file $GOMODCACHE/github.com/rogpeppe/go-internal@v1.11.0/LICENSE:
 
 Copyright (c) 2018 The Go Authors. All rights reserved.
 
