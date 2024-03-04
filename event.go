@@ -354,6 +354,7 @@ type FileInfo struct {
 
 type FileCreate struct {
 	Pids              PidInfo  `json:"pids"`
+	Creds             CredInfo `json:"creds"`
 	Finfo             FileInfo `json:"file_info"`
 	MountNs           uint32   `json:"mount_ns"`
 	Comm              string   `json:"comm"`
@@ -364,6 +365,10 @@ type FileCreate struct {
 func (e *FileCreate) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
+	}
+
+	if err := binary.Read(r, endian.Native, &e.Creds); err != nil {
+		return fmt.Errorf("read creds: %v", err)
 	}
 
 	fi, err := readFileInfo(r)
@@ -398,6 +403,7 @@ func (e *FileCreate) Unmarshal(r *bytes.Reader) error {
 
 type FileDelete struct {
 	Pids              PidInfo  `json:"pids"`
+	Creds             CredInfo `json:"creds"`
 	Finfo             FileInfo `json:"file_info"`
 	MountNs           uint32   `json:"mount_ns"`
 	Comm              string   `json:"comm"`
@@ -408,6 +414,10 @@ type FileDelete struct {
 func (e *FileDelete) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
+	}
+
+	if err := binary.Read(r, endian.Native, &e.Creds); err != nil {
+		return fmt.Errorf("read creds: %v", err)
 	}
 
 	fi, err := readFileInfo(r)
@@ -442,6 +452,7 @@ func (e *FileDelete) Unmarshal(r *bytes.Reader) error {
 
 type FileRename struct {
 	Pids              PidInfo  `json:"pids"`
+	Creds             CredInfo `json:"creds"`
 	Finfo             FileInfo `json:"file_info"`
 	MountNs           uint32   `json:"mount_ns"`
 	Comm              string   `json:"comm"`
@@ -453,6 +464,10 @@ type FileRename struct {
 func (e *FileRename) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
+	}
+
+	if err := binary.Read(r, endian.Native, &e.Creds); err != nil {
+		return fmt.Errorf("read creds: %v", err)
 	}
 
 	fi, err := readFileInfo(r)
@@ -504,6 +519,7 @@ func (ft FileChangeType) MarshalJSON() ([]byte, error) {
 
 type FileModify struct {
 	Pids              PidInfo        `json:"pids"`
+	Creds             CredInfo       `json:"creds"`
 	Finfo             FileInfo       `json:"file_info"`
 	ChangeType        FileChangeType `json:"change_type"`
 	MountNs           uint32         `json:"mount_ns"`
@@ -515,6 +531,10 @@ type FileModify struct {
 func (e *FileModify) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
+	}
+
+	if err := binary.Read(r, endian.Native, &e.Creds); err != nil {
+		return fmt.Errorf("read creds: %v", err)
 	}
 
 	fi, err := readFileInfo(r)

@@ -237,6 +237,7 @@ func writeFileCreate(t *testing.T, w *bufio.Writer, ev ebpfevents.FileCreate) {
 	t.Helper()
 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	writeFileInfo(t, w, ev.Finfo)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
 	_, err := w.WriteString(ev.Comm)
@@ -271,6 +272,7 @@ func writeFileRename(t *testing.T, w *bufio.Writer, ev ebpfevents.FileRename) {
 	t.Helper()
 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	writeFileInfo(t, w, ev.Finfo)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
 	_, err := w.WriteString(ev.Comm)
@@ -306,6 +308,7 @@ func writeFileDelete(t *testing.T, w *bufio.Writer, ev ebpfevents.FileDelete) {
 	t.Helper()
 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	writeFileInfo(t, w, ev.Finfo)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
 	_, err := w.WriteString(ev.Comm)
@@ -340,6 +343,7 @@ func writeFileModify(t *testing.T, w *bufio.Writer, ev ebpfevents.FileModify) {
 	t.Helper()
 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	writeFileInfo(t, w, ev.Finfo)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.ChangeType))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
