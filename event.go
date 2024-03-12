@@ -360,6 +360,7 @@ type FileCreate struct {
 	Comm              string   `json:"comm"`
 	Path              string   `json:"path"`
 	SymlinkTargetPath string   `json:"symlink_target_path"`
+	CgroupPath        string   `json:"cgroup_path"`
 }
 
 func (e *FileCreate) Unmarshal(r *bytes.Reader) error {
@@ -397,6 +398,9 @@ func (e *FileCreate) Unmarshal(r *bytes.Reader) error {
 	if val, ok := vlMap[varlen.SymlinkTargetPath]; ok {
 		e.SymlinkTargetPath = val.(string)
 	}
+	if val, ok := vlMap[varlen.CgroupPath]; ok {
+		e.CgroupPath = val.(string)
+	}
 
 	return nil
 }
@@ -409,6 +413,7 @@ type FileDelete struct {
 	Comm              string   `json:"comm"`
 	Path              string   `json:"path"`
 	SymlinkTargetPath string   `json:"symlink_target_path"`
+	CgroupPath        string   `json:"cgroup_path"`
 }
 
 func (e *FileDelete) Unmarshal(r *bytes.Reader) error {
@@ -446,6 +451,9 @@ func (e *FileDelete) Unmarshal(r *bytes.Reader) error {
 	if val, ok := vlMap[varlen.SymlinkTargetPath]; ok {
 		e.SymlinkTargetPath = val.(string)
 	}
+	if val, ok := vlMap[varlen.CgroupPath]; ok {
+		e.CgroupPath = val.(string)
+	}
 
 	return nil
 }
@@ -459,6 +467,7 @@ type FileRename struct {
 	OldPath           string   `json:"old_path"`
 	NewPath           string   `json:"new_path"`
 	SymlinkTargetPath string   `json:"symlink_target_path"`
+	CgroupPath        string   `json:"cgroup_path"`
 }
 
 func (e *FileRename) Unmarshal(r *bytes.Reader) error {
@@ -499,6 +508,9 @@ func (e *FileRename) Unmarshal(r *bytes.Reader) error {
 	if val, ok := vlMap[varlen.SymlinkTargetPath]; ok {
 		e.SymlinkTargetPath = val.(string)
 	}
+	if val, ok := vlMap[varlen.CgroupPath]; ok {
+		e.CgroupPath = val.(string)
+	}
 
 	return nil
 }
@@ -526,6 +538,7 @@ type FileModify struct {
 	Comm              string         `json:"comm"`
 	Path              string         `json:"path"`
 	SymlinkTargetPath string         `json:"symlink_target_path"`
+	CgroupPath        string         `json:"cgroup_path"`
 }
 
 func (e *FileModify) Unmarshal(r *bytes.Reader) error {
@@ -566,6 +579,9 @@ func (e *FileModify) Unmarshal(r *bytes.Reader) error {
 	}
 	if val, ok := vlMap[varlen.SymlinkTargetPath]; ok {
 		e.SymlinkTargetPath = val.(string)
+	}
+	if val, ok := vlMap[varlen.CgroupPath]; ok {
+		e.CgroupPath = val.(string)
 	}
 
 	return nil

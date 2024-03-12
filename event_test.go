@@ -246,6 +246,7 @@ func writeFileCreate(t *testing.T, w *bufio.Writer, ev ebpfevents.FileCreate) {
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.Path:              ev.Path,
 		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
+		varlen.CgroupPath:        ev.CgroupPath,
 	})
 
 	assert.Nil(t, w.Flush())
@@ -282,6 +283,7 @@ func writeFileRename(t *testing.T, w *bufio.Writer, ev ebpfevents.FileRename) {
 		varlen.OldPath:           ev.OldPath,
 		varlen.NewPath:           ev.NewPath,
 		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
+		varlen.CgroupPath:        ev.CgroupPath,
 	})
 
 	assert.Nil(t, w.Flush())
@@ -317,6 +319,7 @@ func writeFileDelete(t *testing.T, w *bufio.Writer, ev ebpfevents.FileDelete) {
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.Path:              ev.Path,
 		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
+		varlen.CgroupPath:        ev.CgroupPath,
 	})
 
 	assert.Nil(t, w.Flush())
@@ -353,6 +356,7 @@ func writeFileModify(t *testing.T, w *bufio.Writer, ev ebpfevents.FileModify) {
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.Path:              ev.Path,
 		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
+		varlen.CgroupPath:        ev.CgroupPath,
 	})
 
 	assert.Nil(t, w.Flush())
