@@ -8,39 +8,53 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[EventTypeProcessFork-2]
-	_ = x[EventTypeProcessExec-4]
-	_ = x[EventTypeProcessExit-8]
-	_ = x[EventTypeProcessSetsid-16]
-	_ = x[EventTypeProcessSetuid-32]
-	_ = x[EventTypeProcessSetgid-64]
-	_ = x[EventTypeProcessTTYWrite-128]
-	_ = x[EventTypeFileDelete-256]
-	_ = x[EventTypeFileCreate-512]
-	_ = x[EventTypeFileRename-1024]
-	_ = x[EventTypeFileModify-2048]
-	_ = x[EventTypeNetworkConnectionAccepted-4096]
-	_ = x[EventTypeNetworkConnectionAttempted-8192]
-	_ = x[EventTypeNetworkConnectionClosed-16384]
+	_ = x[EventTypeProcessFork-1]
+	_ = x[EventTypeProcessExec-2]
+	_ = x[EventTypeProcessExit-4]
+	_ = x[EventTypeProcessSetsid-8]
+	_ = x[EventTypeProcessSetuid-16]
+	_ = x[EventTypeProcessSetgid-32]
+	_ = x[EventTypeProcessTTYWrite-64]
+	_ = x[EventTypeFileDelete-128]
+	_ = x[EventTypeFileCreate-256]
+	_ = x[EventTypeFileRename-512]
+	_ = x[EventTypeFileModify-1024]
+	_ = x[EventTypeFileMemFDOpen-2048]
+	_ = x[EventTypeShmemOpen-4096]
+	_ = x[EventTypeNetworkConnectionAccepted-8192]
+	_ = x[EventTypeNetworkConnectionAttempted-16384]
+	_ = x[EventTypeNetworkConnectionClosed-32768]
+	_ = x[EventTypeProcessMemFDCreate-65536]
+	_ = x[EventTypeProcessShmGet-131072]
+	_ = x[EventTypeProcessPtrace-262144]
+	_ = x[EventTypeProcessLoadModule-524288]
+	_ = x[EventTypeNetworkDNS-1048576]
 }
 
-const _EventType_name = "ProcessForkProcessExecProcessExitProcessSetsidProcessSetuidProcessSetgidProcessTTYWriteFileDeleteFileCreateFileRenameFileModifyNetConnectionAcceptedNetConnectionAttemptedNetConnectionClosed"
+const _EventType_name = "ProcessForkProcessExecProcessExitProcessSetsidProcessSetuidProcessSetgidProcessTTYWriteFileDeleteFileCreateFileRenameFileModifyFileMemFDOpenSHmemOpenNetConnectionAcceptedNetConnectionAttemptedNetConnectionClosedProcessMemFDCreateProcessShmGetProcessPtraceProcessLoadModuleNetworkDNS"
 
 var _EventType_map = map[EventType]string{
-	2:     _EventType_name[0:11],
-	4:     _EventType_name[11:22],
-	8:     _EventType_name[22:33],
-	16:    _EventType_name[33:46],
-	32:    _EventType_name[46:59],
-	64:    _EventType_name[59:72],
-	128:   _EventType_name[72:87],
-	256:   _EventType_name[87:97],
-	512:   _EventType_name[97:107],
-	1024:  _EventType_name[107:117],
-	2048:  _EventType_name[117:127],
-	4096:  _EventType_name[127:148],
-	8192:  _EventType_name[148:170],
-	16384: _EventType_name[170:189],
+	1:       _EventType_name[0:11],
+	2:       _EventType_name[11:22],
+	4:       _EventType_name[22:33],
+	8:       _EventType_name[33:46],
+	16:      _EventType_name[46:59],
+	32:      _EventType_name[59:72],
+	64:      _EventType_name[72:87],
+	128:     _EventType_name[87:97],
+	256:     _EventType_name[97:107],
+	512:     _EventType_name[107:117],
+	1024:    _EventType_name[117:127],
+	2048:    _EventType_name[127:140],
+	4096:    _EventType_name[140:149],
+	8192:    _EventType_name[149:170],
+	16384:   _EventType_name[170:192],
+	32768:   _EventType_name[192:211],
+	65536:   _EventType_name[211:229],
+	131072:  _EventType_name[229:242],
+	262144:  _EventType_name[242:255],
+	524288:  _EventType_name[255:272],
+	1048576: _EventType_name[272:282],
 }
 
 func (i EventType) String() string {
