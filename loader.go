@@ -362,7 +362,11 @@ func (l *Loader) fillFieldOffset(structName, fieldName string) error {
 }
 
 func (l *Loader) fillIndexes() error {
-	err := l.fillArgIndex("vfs_unlink", "dentry")
+	var err error
+
+	err = errors.Join(err, l.fillRetIndex("inet_csk_accept"))
+
+	err = errors.Join(err, l.fillArgIndex("vfs_unlink", "dentry"))
 	err = errors.Join(err, l.fillRetIndex("vfs_unlink"))
 
 	if kernel.ArgExists(l.kbtf, "vfs_rename", "rd") {

@@ -3,8 +3,8 @@ SHELL := /bin/bash
 BUILD_ARCH ?= amd64
 OUT_PATH ?= $(shell pwd)/artifacts/$(BUILD_ARCH)
 
-CLANG ?= clang-16
-CLANG_FORMAT ?= clang-format-16
+CLANG ?= clang-18
+CLANG_FORMAT ?= clang-format-18
 CFLAGS := -O2 -g -D__KERNEL__ $(CFLAGS)
 
 .PHONY: generate build-eventstrace tidy clean lint test notice dependency-report write-license-headers

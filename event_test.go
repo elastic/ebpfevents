@@ -40,6 +40,12 @@ func writeProcessFork(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessFork) 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.ParentPids))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.ChildPids))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.CTTY))
+	_, err := w.WriteString(ev.Comm)
+	assert.Nil(t, err)
+	assert.Nil(t, w.WriteByte(0))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.NS))
+
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.CgroupPath: ev.CgroupPath,
 	})
@@ -53,6 +59,7 @@ func TestProcessFork(t *testing.T) {
 
 	var expectedEvent ebpfevents.ProcessFork
 	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
 	writeProcessFork(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessFork
@@ -66,6 +73,12 @@ func writeProcessExec(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessExec) 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.CTTY))
+	_, err := w.WriteString(ev.Comm)
+	assert.Nil(t, err)
+	assert.Nil(t, w.WriteByte(0))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.NS))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.InodeNlink))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Flags))
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.Cwd:        ev.Cwd,
 		varlen.Argv:       ev.Argv,
@@ -83,6 +96,7 @@ func TestProcessExec(t *testing.T) {
 
 	var expectedEvent ebpfevents.ProcessExec
 	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
 	writeProcessExec(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessExec
@@ -94,6 +108,8 @@ func writeProcessExit(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessExit) 
 	t.Helper()
 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.CTTY))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.ExitCode))
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.CgroupPath: ev.CgroupPath,

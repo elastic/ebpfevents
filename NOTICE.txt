@@ -1,5 +1,5 @@
 ebpfevents
-Copyright 2023-2024 Elasticsearch BV
+Copyright 2023-2025 Elasticsearch BV
 
 This repository includes dependencies/submodules whose licenses are listed in LICENSE.txt.
 

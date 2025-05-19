@@ -24,13 +24,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/ebpfevents"
 )
 
 func TestNewLoader(t *testing.T) {
 	l, err := ebpfevents.NewLoader()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer l.Close()
 
 	records := make(chan ebpfevents.Record, 3)

@@ -42,6 +42,9 @@ const (
 	TTYOutput
 	CgroupPath
 	SymlinkTargetPath
+	ModVersion
+	SrcVersion
+	DnsBody
 )
 
 type varlenStart struct {
@@ -86,6 +89,11 @@ func DeserializeVarlenFields(r *bytes.Reader) (Map, error) {
 				return nil, fmt.Errorf("deserialize varlen env: %v", err)
 			}
 			ret[field.typ] = env
+		case ModVersion, SrcVersion, DnsBody: // Unhandled, discard
+			_, err := deserializeVarlenEnv(r, field.size)
+			if err != nil {
+				return nil, fmt.Errorf("deserialize varlen env: %v", err)
+			}
 		default:
 			return nil, fmt.Errorf("unsupported varlen type: %d", field.typ)
 		}

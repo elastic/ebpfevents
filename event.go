@@ -45,7 +45,7 @@ type EventUnmarshaler interface {
 type EventType uint64
 
 const (
-	EventTypeProcessFork                EventType = 1 << (iota + 1) // ProcessFork
+	EventTypeProcessFork                EventType = 1 << (iota + 0) // ProcessFork
 	EventTypeProcessExec                                            // ProcessExec
 	EventTypeProcessExit                                            // ProcessExit
 	EventTypeProcessSetsid                                          // ProcessSetsid
@@ -56,9 +56,16 @@ const (
 	EventTypeFileCreate                                             // FileCreate
 	EventTypeFileRename                                             // FileRename
 	EventTypeFileModify                                             // FileModify
+	EventTypeFileMemFDOpen                                          // FileMemFDOpen
+	EventTypeShmemOpen                                              // SHmemOpen
 	EventTypeNetworkConnectionAccepted                              // NetConnectionAccepted
 	EventTypeNetworkConnectionAttempted                             // NetConnectionAttempted
 	EventTypeNetworkConnectionClosed                                // NetConnectionClosed
+	EventTypeProcessMemFDCreate                                     // ProcessMemFDCreate
+	EventTypeProcessShmGet                                          // ProcessShmGet
+	EventTypeProcessPtrace                                          // ProcessPtrace
+	EventTypeProcessLoadModule                                      // ProcessLoadModule
+	EventTypeNetworkDNS                                             // NetworkDNS
 )
 
 func (et EventType) MarshalJSON() ([]byte, error) {
@@ -66,9 +73,10 @@ func (et EventType) MarshalJSON() ([]byte, error) {
 }
 
 type Header struct {
-	NsSinceBoot uint64    `json:"ns_since_boot"`
-	Time        time.Time `json:"time"`
-	Type        EventType `json:"type"`
+	NsSinceBoot  uint64    `json:"ns_since_boot"`
+	NsSinceBoot2 uint64    `json:"ns_since_boot2"`
+	Time         time.Time `json:"time"`
+	Type         EventType `json:"type"`
 }
 
 type Event struct {
@@ -96,6 +104,16 @@ type CredInfo struct {
 	CapEffective uint64 `json:"cap_effective"`
 }
 
+type NamespaceInfo struct {
+	Uts    uint32 `json:"uts"`
+	Ipc    uint32 `json:"ipc"`
+	Mnt    uint32 `json:"mnt"`
+	Net    uint32 `json:"net"`
+	Cgroup uint32 `json:"cgroup"`
+	Time   uint32 `json:"time"`
+	Pid    uint32 `json:"pid"`
+}
+
 type TTYWinsize struct {
 	Rows uint16 `json:"rows"`
 	Cols uint16 `json:"cols"`
@@ -116,10 +134,13 @@ type TTYDev struct {
 }
 
 type ProcessFork struct {
-	ParentPids PidInfo  `json:"parent_pids"`
-	ChildPids  PidInfo  `json:"child_pids"`
-	Creds      CredInfo `json:"creds"`
-	CgroupPath string   `json:"cgroup_path"`
+	ParentPids PidInfo       `json:"parent_pids"`
+	ChildPids  PidInfo       `json:"child_pids"`
+	Creds      CredInfo      `json:"creds"`
+	CTTY       TTYDev        `json:"ctty"`
+	Comm       string        `json:"comm"`
+	NS         NamespaceInfo `json:"ns"`
+	CgroupPath string        `json:"cgroup_path"`
 }
 
 const TaskCommLen = 16
@@ -133,6 +154,17 @@ func (e *ProcessFork) Unmarshal(r *bytes.Reader) error {
 	}
 	if err := binary.Read(r, endian.Native, &e.Creds); err != nil {
 		return fmt.Errorf("read creds: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &e.CTTY); err != nil {
+		return fmt.Errorf("read ctty: %v", err)
+	}
+	comm, err := readTaskComm(r)
+	if err != nil {
+		return err
+	}
+	e.Comm = comm
+	if err := binary.Read(r, endian.Native, &e.NS); err != nil {
+		return fmt.Errorf("read ns: %v", err)
 	}
 
 	vlMap, err := varlen.DeserializeVarlenFields(r)
@@ -150,6 +182,10 @@ type ProcessExec struct {
 	Pids       PidInfo           `json:"pids"`
 	Creds      CredInfo          `json:"creds"`
 	CTTY       TTYDev            `json:"ctty"`
+	Comm       string            `json:"comm"`
+	NS         NamespaceInfo     `json:"ns"`
+	InodeNlink uint32            `json:"inode_nlink"`
+	Flags      uint32            `json:"flags"`
 	Cwd        string            `json:"cwd"`
 	Argv       []string          `json:"argv"`
 	Env        map[string]string `json:"env"`
@@ -166,6 +202,20 @@ func (e *ProcessExec) Unmarshal(r *bytes.Reader) error {
 	}
 	if err := binary.Read(r, endian.Native, &e.CTTY); err != nil {
 		return fmt.Errorf("read ctty: %v", err)
+	}
+	comm, err := readTaskComm(r)
+	if err != nil {
+		return err
+	}
+	e.Comm = comm
+	if err := binary.Read(r, endian.Native, &e.NS); err != nil {
+		return fmt.Errorf("read ns: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &e.InodeNlink); err != nil {
+		return fmt.Errorf("read inode_nlink: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &e.Flags); err != nil {
+		return fmt.Errorf("read flags: %v", err)
 	}
 
 	vlMap, err := varlen.DeserializeVarlenFields(r)
@@ -192,14 +242,22 @@ func (e *ProcessExec) Unmarshal(r *bytes.Reader) error {
 }
 
 type ProcessExit struct {
-	Pids       PidInfo `json:"pids"`
-	ExitCode   int32   `json:"exit_code"`
-	CgroupPath string  `json:"cgroup_path"`
+	Pids       PidInfo  `json:"pids"`
+	Creds      CredInfo `json:"creds"`
+	CTTY       TTYDev   `json:"ctty"`
+	ExitCode   int32    `json:"exit_code"`
+	CgroupPath string   `json:"cgroup_path"`
 }
 
 func (e *ProcessExit) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.Pids); err != nil {
 		return fmt.Errorf("read pids: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &e.Creds); err != nil {
+		return fmt.Errorf("read creds: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &e.CTTY); err != nil {
+		return fmt.Errorf("read ctty: %v", err)
 	}
 	if err := binary.Read(r, endian.Native, &e.ExitCode); err != nil {
 		return fmt.Errorf("read exit code: %v", err)
@@ -305,7 +363,6 @@ func (e *ProcessTTYWrite) Unmarshal(r *bytes.Reader) error {
 	if err := binary.Read(r, endian.Native, &e.TTY); err != nil {
 		return fmt.Errorf("read tty: %v", err)
 	}
-
 	comm, err := readTaskComm(r)
 	if err != nil {
 		return err
@@ -697,6 +754,9 @@ func readHeader(r *bytes.Reader, ev *Event) error {
 
 	if err := binary.Read(r, endian.Native, &h.NsSinceBoot); err != nil {
 		return fmt.Errorf("read ns since boot: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &h.NsSinceBoot2); err != nil {
+		return fmt.Errorf("read ns since boot2: %v", err)
 	}
 	if err := binary.Read(r, endian.Native, &h.Type); err != nil {
 		return fmt.Errorf("read type: %v", err)
