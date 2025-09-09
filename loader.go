@@ -110,7 +110,7 @@ func (l *Loader) loadBpf() error {
 			// load times, so do this only if already asserted
 			// the probe is failing to load.
 			var opts ebpf.CollectionOptions
-			opts.Programs.LogSize = 1 << 26
+			opts.Programs.LogSizeStart = 1 << 26
 			opts.Programs.LogLevel = ebpf.LogLevelInstruction
 
 			if err2 := spec.LoadAndAssign(&l.objs, &opts); err2 != nil {
