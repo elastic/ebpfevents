@@ -87,6 +87,31 @@ func NewLoader() (*Loader, error) {
 	return l, nil
 }
 
+func (l *Loader) rewriteConstants(spec *ebpf.CollectionSpec) error {
+	var missing []string
+	for n, c := range l.constants {
+		v, ok := spec.Variables[n]
+		if !ok {
+			missing = append(missing, n)
+			continue
+		}
+
+		if !v.Constant() {
+			return fmt.Errorf("variable %s is not a constant", n)
+		}
+
+		if err := v.Set(c); err != nil {
+			return fmt.Errorf("rewriting constant %s: %w", n, err)
+		}
+	}
+
+	if len(missing) != 0 {
+		return fmt.Errorf("rewrite constants: %+v", missing)
+	}
+
+	return nil
+}
+
 func (l *Loader) loadBpf() error {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return fmt.Errorf("rlimit remove memlock: %v", err)
@@ -96,35 +121,24 @@ func (l *Loader) loadBpf() error {
 	if err != nil {
 		return fmt.Errorf("load collection: %v", err)
 	}
-	if err := spec.RewriteConstants(l.constants); err != nil {
+
+	if err := l.rewriteConstants(spec); err != nil {
 		return fmt.Errorf("rewrite constants: %v", err)
 	}
 	spec.Maps["event_buffer_map"].MaxEntries = uint32(runtime.NumCPU())
 
 	// Try to load all with default logsize
-	if err := spec.LoadAndAssign(&l.objs, nil); err != nil {
-		var ve *ebpf.VerifierError
-		if errors.As(err, &ve) {
-			// If we hit a verifier error, try to load all
-			// with an increased logsize. This heavily impacts
-			// load times, so do this only if already asserted
-			// the probe is failing to load.
-			var opts ebpf.CollectionOptions
-			opts.Programs.LogSize = 1 << 26
-			opts.Programs.LogLevel = ebpf.LogLevelInstruction
+	var opts ebpf.CollectionOptions
+	opts.Programs.LogSizeStart = 1 << 16
+	opts.Programs.LogLevel = ebpf.LogLevelInstruction
 
-			if err2 := spec.LoadAndAssign(&l.objs, &opts); err2 != nil {
-				var ve2 *ebpf.VerifierError
-				if errors.As(err2, &ve2) {
-					for _, line := range ve2.Log {
-						fmt.Println(line)
-					}
-					return fmt.Errorf("verifier error: %w", err2)
-				}
-				return fmt.Errorf("error loading bpf probes: %v", err2)
-			}
-			return errors.New("expected error (???), probes load successfully at the second try")
+	if err := spec.LoadAndAssign(&l.objs, &opts); err != nil {
+		var ve *ebpf.VerifierError
+
+		if errors.As(err, &ve) {
+			return fmt.Errorf("verifier error: %w", err)
 		}
+
 		return fmt.Errorf("error loading bpf probes: %v", err)
 	}
 	defer func() {

@@ -64,9 +64,10 @@ func loadBpfObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
 type bpfSpecs struct {
 	bpfProgramSpecs
 	bpfMapSpecs
+	bpfVariableSpecs
 }
 
-// bpfSpecs contains programs before they are loaded into the kernel.
+// bpfProgramSpecs contains programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
@@ -147,12 +148,33 @@ type bpfMapSpecs struct {
 	SkToTgid                         *ebpf.MapSpec `ebpf:"sk_to_tgid"`
 }
 
+// bpfVariableSpecs contains global variables before they are loaded into the kernel.
+//
+// It can be passed ebpf.CollectionSpec.Assign.
+type bpfVariableSpecs struct {
+	ArgDoTruncateFilp     *ebpf.VariableSpec `ebpf:"arg__do_truncate__filp__"`
+	ArgVfsRenameNewDentry *ebpf.VariableSpec `ebpf:"arg__vfs_rename__new_dentry__"`
+	ArgVfsRenameOldDentry *ebpf.VariableSpec `ebpf:"arg__vfs_rename__old_dentry__"`
+	ArgVfsUnlinkDentry    *ebpf.VariableSpec `ebpf:"arg__vfs_unlink__dentry__"`
+	ConsumerPid           *ebpf.VariableSpec `ebpf:"consumer_pid"`
+	ExistsVfsRenameRd     *ebpf.VariableSpec `ebpf:"exists__vfs_rename__rd__"`
+	OffInodeI_atime       *ebpf.VariableSpec `ebpf:"off__inode____i_atime__"`
+	OffInodeI_ctime       *ebpf.VariableSpec `ebpf:"off__inode____i_ctime__"`
+	OffInodeI_mtime       *ebpf.VariableSpec `ebpf:"off__inode____i_mtime__"`
+	OffIovIterIov         *ebpf.VariableSpec `ebpf:"off__iov_iter____iov__"`
+	RetDoTruncate         *ebpf.VariableSpec `ebpf:"ret__do_truncate__"`
+	RetInetCskAccept      *ebpf.VariableSpec `ebpf:"ret__inet_csk_accept__"`
+	RetVfsRename          *ebpf.VariableSpec `ebpf:"ret__vfs_rename__"`
+	RetVfsUnlink          *ebpf.VariableSpec `ebpf:"ret__vfs_unlink__"`
+}
+
 // bpfObjects contains all objects after they have been loaded into the kernel.
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfObjects struct {
 	bpfPrograms
 	bpfMaps
+	bpfVariables
 }
 
 func (o *bpfObjects) Close() error {
@@ -191,6 +213,26 @@ func (m *bpfMaps) Close() error {
 		m.RingbufStats,
 		m.SkToTgid,
 	)
+}
+
+// bpfVariables contains all global variables after they have been loaded into the kernel.
+//
+// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfVariables struct {
+	ArgDoTruncateFilp     *ebpf.Variable `ebpf:"arg__do_truncate__filp__"`
+	ArgVfsRenameNewDentry *ebpf.Variable `ebpf:"arg__vfs_rename__new_dentry__"`
+	ArgVfsRenameOldDentry *ebpf.Variable `ebpf:"arg__vfs_rename__old_dentry__"`
+	ArgVfsUnlinkDentry    *ebpf.Variable `ebpf:"arg__vfs_unlink__dentry__"`
+	ConsumerPid           *ebpf.Variable `ebpf:"consumer_pid"`
+	ExistsVfsRenameRd     *ebpf.Variable `ebpf:"exists__vfs_rename__rd__"`
+	OffInodeI_atime       *ebpf.Variable `ebpf:"off__inode____i_atime__"`
+	OffInodeI_ctime       *ebpf.Variable `ebpf:"off__inode____i_ctime__"`
+	OffInodeI_mtime       *ebpf.Variable `ebpf:"off__inode____i_mtime__"`
+	OffIovIterIov         *ebpf.Variable `ebpf:"off__iov_iter____iov__"`
+	RetDoTruncate         *ebpf.Variable `ebpf:"ret__do_truncate__"`
+	RetInetCskAccept      *ebpf.Variable `ebpf:"ret__inet_csk_accept__"`
+	RetVfsRename          *ebpf.Variable `ebpf:"ret__vfs_rename__"`
+	RetVfsUnlink          *ebpf.Variable `ebpf:"ret__vfs_unlink__"`
 }
 
 // bpfPrograms contains all programs after they have been loaded into the kernel.
