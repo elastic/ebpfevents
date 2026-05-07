@@ -127,16 +127,12 @@ func (l *Loader) loadBpf() error {
 	}
 	spec.Maps["event_buffer_map"].MaxEntries = uint32(runtime.NumCPU())
 
-	// Try to load all with default logsize
-	var opts ebpf.CollectionOptions
-	opts.Programs.LogSizeStart = 1 << 16
-	opts.Programs.LogLevel = ebpf.LogLevelInstruction
-
-	if err := spec.LoadAndAssign(&l.objs, &opts); err != nil {
+	// Try to load all
+	if err := spec.LoadAndAssign(&l.objs, nil); err != nil {
 		var ve *ebpf.VerifierError
 
 		if errors.As(err, &ve) {
-			return fmt.Errorf("verifier error: %w", err)
+			return fmt.Errorf("verifier error: %w\n%+v", err, ve)
 		}
 
 		return fmt.Errorf("error loading bpf probes: %v", err)
