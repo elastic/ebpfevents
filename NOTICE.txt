@@ -10,11 +10,11 @@ Third party libraries used by ebpfevents:
 
 --------------------------------------------------------------------------------
 Dependency : github.com/cilium/ebpf
-Version: v0.21.0
+Version: v0.22.0
 Licence type (autodetected): MIT
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/github.com/cilium/ebpf@v0.21.0/LICENSE:
+Contents of probable licence file $GOMODCACHE/github.com/cilium/ebpf@v0.22.0/LICENSE:
 
 MIT License
 
@@ -286,11 +286,11 @@ SOFTWARE.
 
 --------------------------------------------------------------------------------
 Dependency : github.com/stretchr/testify
-Version: v1.10.0
+Version: v1.11.1
 Licence type (autodetected): MIT
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/github.com/stretchr/testify@v1.10.0/LICENSE:
+Contents of probable licence file $GOMODCACHE/github.com/stretchr/testify@v1.11.1/LICENSE:
 
 MIT License
 
@@ -529,11 +529,11 @@ Contents of probable licence file $GOMODCACHE/go.elastic.co/go-licence-detector@
 
 --------------------------------------------------------------------------------
 Dependency : golang.org/x/sys
-Version: v0.37.0
+Version: v0.43.0
 Licence type (autodetected): BSD-3-Clause
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/golang.org/x/sys@v0.37.0/LICENSE:
+Contents of probable licence file $GOMODCACHE/golang.org/x/sys@v0.43.0/LICENSE:
 
 Copyright 2009 The Go Authors.
 
@@ -1215,11 +1215,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 --------------------------------------------------------------------------------
 Dependency : github.com/rogpeppe/go-internal
-Version: v1.12.0
+Version: v1.14.1
 Licence type (autodetected): BSD-3-Clause
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/github.com/rogpeppe/go-internal@v1.12.0/LICENSE:
+Contents of probable licence file $GOMODCACHE/github.com/rogpeppe/go-internal@v1.14.1/LICENSE:
 
 Copyright (c) 2018 The Go Authors. All rights reserved.
 
@@ -1282,11 +1282,11 @@ DEALINGS IN THE SOFTWARE.
 
 --------------------------------------------------------------------------------
 Dependency : golang.org/x/mod
-Version: v0.29.0
+Version: v0.31.0
 Licence type (autodetected): BSD-3-Clause
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/golang.org/x/mod@v0.29.0/LICENSE:
+Contents of probable licence file $GOMODCACHE/golang.org/x/mod@v0.31.0/LICENSE:
 
 Copyright 2009 The Go Authors.
 
@@ -1319,11 +1319,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 --------------------------------------------------------------------------------
 Dependency : golang.org/x/net
-Version: v0.46.0
+Version: v0.48.0
 Licence type (autodetected): BSD-3-Clause
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/golang.org/x/net@v0.46.0/LICENSE:
+Contents of probable licence file $GOMODCACHE/golang.org/x/net@v0.48.0/LICENSE:
 
 Copyright 2009 The Go Authors.
 
@@ -1356,11 +1356,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 --------------------------------------------------------------------------------
 Dependency : golang.org/x/sync
-Version: v0.17.0
+Version: v0.20.0
 Licence type (autodetected): BSD-3-Clause
 --------------------------------------------------------------------------------
 
-Contents of probable licence file $GOMODCACHE/golang.org/x/sync@v0.17.0/LICENSE:
+Contents of probable licence file $GOMODCACHE/golang.org/x/sync@v0.20.0/LICENSE:
 
 Copyright 2009 The Go Authors.
 

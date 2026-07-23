@@ -137,10 +137,7 @@ func (l *Loader) loadBpf() error {
 
 		return fmt.Errorf("error loading bpf probes: %v", err)
 	}
-	defer func() {
-		btf.FlushKernelSpec()
-		runtime.GC()
-	}()
+	defer runtime.GC()
 
 	rd, err := ringbuf.NewReader(l.objs.bpfMaps.Ringbuf)
 	if err != nil {
