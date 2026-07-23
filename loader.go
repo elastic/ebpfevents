@@ -139,7 +139,7 @@ func (l *Loader) loadBpf() error {
 	}
 	defer runtime.GC()
 
-	rd, err := ringbuf.NewReader(l.objs.bpfMaps.Ringbuf)
+	rd, err := ringbuf.NewReader(l.objs.Ringbuf)
 	if err != nil {
 		return fmt.Errorf("error opening ringbuf reader: %v", err)
 	}
@@ -313,17 +313,18 @@ func (l *Loader) EventLoop(ctx context.Context, out chan<- Record) {
 }
 
 func (l *Loader) BufferLen() uint32 {
-	return l.objs.bpfMaps.Ringbuf.MaxEntries()
+	return l.objs.Ringbuf.MaxEntries()
 }
 
 func (l *Loader) Close() error {
+	var errs []error
 	if l.reader != nil {
-		l.reader.Close()
+		errs = append(errs, l.reader.Close())
 	}
 	for _, lnk := range l.links {
-		lnk.Close()
+		errs = append(errs, lnk.Close())
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (l *Loader) fillArgIndex(funcName, argName string) error {
