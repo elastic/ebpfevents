@@ -85,6 +85,11 @@ func NewLoader() (*Loader, error) {
 		return nil, fmt.Errorf("load bpf: %v", err)
 	}
 
+	// Kernel BTF is only needed during load. Drop the last reference to
+	// the parsed spec (~20MiB) and collect it promptly.
+	cache = nil
+	runtime.GC()
+
 	return l, nil
 }
 
@@ -139,7 +144,6 @@ func (l *Loader) loadBpf(cache *btf.Cache) error {
 
 		return fmt.Errorf("error loading bpf probes: %v", err)
 	}
-	defer runtime.GC()
 
 	rd, err := ringbuf.NewReader(l.objs.Ringbuf)
 	if err != nil {
