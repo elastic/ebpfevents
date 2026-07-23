@@ -70,7 +70,8 @@ func NewLoader() (*Loader, error) {
 		return nil, fmt.Errorf("check kernel version: %v", err)
 	}
 
-	kbtf, err := btf.LoadKernelSpec()
+	cache := btf.NewCache()
+	kbtf, err := cache.Kernel()
 	if err != nil {
 		return nil, fmt.Errorf("load kernel btf: %v", err)
 	}
@@ -80,7 +81,7 @@ func NewLoader() (*Loader, error) {
 	if err := l.fillIndexes(); err != nil {
 		return nil, fmt.Errorf("fill indexes: %v", err)
 	}
-	if err := l.loadBpf(); err != nil {
+	if err := l.loadBpf(cache); err != nil {
 		return nil, fmt.Errorf("load bpf: %v", err)
 	}
 
@@ -112,7 +113,7 @@ func (l *Loader) rewriteConstants(spec *ebpf.CollectionSpec) error {
 	return nil
 }
 
-func (l *Loader) loadBpf() error {
+func (l *Loader) loadBpf(cache *btf.Cache) error {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return fmt.Errorf("rlimit remove memlock: %v", err)
 	}
@@ -128,7 +129,8 @@ func (l *Loader) loadBpf() error {
 	spec.Maps["event_buffer_map"].MaxEntries = uint32(runtime.NumCPU())
 
 	// Try to load all
-	if err := spec.LoadAndAssign(&l.objs, nil); err != nil {
+	opts := &ebpf.CollectionOptions{Cache: cache}
+	if err := spec.LoadAndAssign(&l.objs, opts); err != nil {
 		var ve *ebpf.VerifierError
 
 		if errors.As(err, &ve) {
@@ -148,6 +150,10 @@ func (l *Loader) loadBpf() error {
 	if err := l.attachBpfProgs(); err != nil {
 		return fmt.Errorf("error attaching bpf programs: %v", err)
 	}
+
+	// Kernel BTF is only needed up to this point, release it so the
+	// decoded spec (~20MiB) can be garbage collected.
+	l.kbtf = nil
 
 	return nil
 }
