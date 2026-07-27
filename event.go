@@ -714,7 +714,7 @@ func NewEvent(raw []byte) (*Event, error) {
 		return nil, fmt.Errorf("read event header: %v", err)
 	}
 
-	switch ev.Header.Type {
+	switch ev.Type {
 	case EventTypeProcessFork:
 		err = readBody(r, &ProcessFork{}, &ev)
 	case EventTypeProcessExec:
@@ -740,7 +740,7 @@ func NewEvent(raw []byte) (*Event, error) {
 	case EventTypeNetworkConnectionAccepted, EventTypeNetworkConnectionAttempted, EventTypeNetworkConnectionClosed:
 		err = readBody(r, &NetEvent{}, &ev)
 	default:
-		return nil, fmt.Errorf("unknown event type %d", ev.Header.Type)
+		return nil, fmt.Errorf("unknown event type %d", ev.Type)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read event body (%s): %v", ev.Type.String(), err)

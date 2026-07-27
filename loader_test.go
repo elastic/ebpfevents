@@ -32,7 +32,7 @@ import (
 func TestNewLoader(t *testing.T) {
 	l, err := ebpfevents.NewLoader()
 	require.NoError(t, err)
-	defer l.Close()
+	defer func() { assert.NoError(t, l.Close()) }()
 
 	records := make(chan ebpfevents.Record, 3)
 	go l.EventLoop(context.Background(), records)
@@ -41,7 +41,7 @@ func TestNewLoader(t *testing.T) {
 	fname := "testloader"
 	_, err = os.Create(fname)
 	assert.NoError(t, err)
-	defer os.Remove(fname)
+	defer func() { _ = os.Remove(fname) }()
 
 	time.Sleep(time.Second)
 

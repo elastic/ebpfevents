@@ -70,7 +70,8 @@ func NewLoader() (*Loader, error) {
 		return nil, fmt.Errorf("check kernel version: %v", err)
 	}
 
-	kbtf, err := btf.LoadKernelSpec()
+	cache := btf.NewCache()
+	kbtf, err := cache.Kernel()
 	if err != nil {
 		return nil, fmt.Errorf("load kernel btf: %v", err)
 	}
@@ -80,9 +81,14 @@ func NewLoader() (*Loader, error) {
 	if err := l.fillIndexes(); err != nil {
 		return nil, fmt.Errorf("fill indexes: %v", err)
 	}
-	if err := l.loadBpf(); err != nil {
+	if err := l.loadBpf(cache); err != nil {
 		return nil, fmt.Errorf("load bpf: %v", err)
 	}
+
+	// Kernel BTF is only needed during load. Drop the last reference to
+	// the parsed spec (~20MiB) and collect it promptly.
+	cache = nil
+	runtime.GC()
 
 	return l, nil
 }
@@ -112,7 +118,7 @@ func (l *Loader) rewriteConstants(spec *ebpf.CollectionSpec) error {
 	return nil
 }
 
-func (l *Loader) loadBpf() error {
+func (l *Loader) loadBpf(cache *btf.Cache) error {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return fmt.Errorf("rlimit remove memlock: %v", err)
 	}
@@ -128,7 +134,8 @@ func (l *Loader) loadBpf() error {
 	spec.Maps["event_buffer_map"].MaxEntries = uint32(runtime.NumCPU())
 
 	// Try to load all
-	if err := spec.LoadAndAssign(&l.objs, nil); err != nil {
+	opts := &ebpf.CollectionOptions{Cache: cache}
+	if err := spec.LoadAndAssign(&l.objs, opts); err != nil {
 		var ve *ebpf.VerifierError
 
 		if errors.As(err, &ve) {
@@ -137,12 +144,8 @@ func (l *Loader) loadBpf() error {
 
 		return fmt.Errorf("error loading bpf probes: %v", err)
 	}
-	defer func() {
-		btf.FlushKernelSpec()
-		runtime.GC()
-	}()
 
-	rd, err := ringbuf.NewReader(l.objs.bpfMaps.Ringbuf)
+	rd, err := ringbuf.NewReader(l.objs.Ringbuf)
 	if err != nil {
 		return fmt.Errorf("error opening ringbuf reader: %v", err)
 	}
@@ -151,6 +154,10 @@ func (l *Loader) loadBpf() error {
 	if err := l.attachBpfProgs(); err != nil {
 		return fmt.Errorf("error attaching bpf programs: %v", err)
 	}
+
+	// Kernel BTF is only needed up to this point, release it so the
+	// decoded spec (~20MiB) can be garbage collected.
+	l.kbtf = nil
 
 	return nil
 }
@@ -316,17 +323,18 @@ func (l *Loader) EventLoop(ctx context.Context, out chan<- Record) {
 }
 
 func (l *Loader) BufferLen() uint32 {
-	return l.objs.bpfMaps.Ringbuf.MaxEntries()
+	return l.objs.Ringbuf.MaxEntries()
 }
 
 func (l *Loader) Close() error {
+	var errs []error
 	if l.reader != nil {
-		l.reader.Close()
+		errs = append(errs, l.reader.Close())
 	}
 	for _, lnk := range l.links {
-		lnk.Close()
+		errs = append(errs, lnk.Close())
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (l *Loader) fillArgIndex(funcName, argName string) error {

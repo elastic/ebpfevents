@@ -41,7 +41,7 @@ func HasBpfTramp() bool {
 	if err != nil {
 		return false
 	}
-	defer prog.Close()
+	defer func() { _ = prog.Close() }()
 
 	link, err := link.AttachTracing(link.TracingOptions{
 		Program:    prog,
@@ -50,7 +50,7 @@ func HasBpfTramp() bool {
 	if err != nil {
 		return false
 	}
-	defer link.Close()
+	defer func() { _ = link.Close() }()
 
 	return true
 }
