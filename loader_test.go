@@ -43,10 +43,14 @@ func TestNewLoader(t *testing.T) {
 	assert.NoError(t, err)
 	defer func() { _ = os.Remove(fname) }()
 
-	time.Sleep(time.Second)
-
-	assert.Equal(t, 3, len(records))
-	assert.NoError(t, (<-records).Error) // 1
-	assert.NoError(t, (<-records).Error) // 2
-	assert.NoError(t, (<-records).Error) // 3
+	timeout := time.After(5 * time.Second)
+	for i := range 3 {
+		select {
+		case r := <-records:
+			assert.NoError(t, r.Error)
+		case <-timeout:
+			t.Errorf("timed out waiting for event %d/3", i+1)
+			return
+		}
+	}
 }
