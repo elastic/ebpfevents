@@ -119,9 +119,11 @@ func (l *Loader) rewriteConstants(spec *ebpf.CollectionSpec) error {
 }
 
 func (l *Loader) loadBpf(cache *btf.Cache) error {
-	if err := rlimit.RemoveMemlock(); err != nil {
-		return fmt.Errorf("rlimit remove memlock: %v", err)
-	}
+	// Best-effort: not needed on kernels >= 5.11. On older kernels it
+	// requires CAP_SYS_RESOURCE, which may not be available in containers.
+	// If the default memlock limit is insufficient, LoadAndAssign will fail
+	// with a more specific error.
+	_ = rlimit.RemoveMemlock()
 
 	spec, err := loadBpf()
 	if err != nil {
