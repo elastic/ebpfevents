@@ -110,6 +110,10 @@ func writeProcessExit(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessExit) 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.CTTY))
+	_, err := w.WriteString(ev.Comm)
+	assert.Nil(t, err)
+	assert.Nil(t, w.WriteByte(0))
+	assert.Nil(t, binary.Write(w, endian.Native, ev.NS))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.ExitCode))
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.CgroupPath: ev.CgroupPath,
@@ -124,6 +128,7 @@ func TestProcessExit(t *testing.T) {
 
 	var expectedEvent ebpfevents.ProcessExit
 	assert.Nil(t, faker.FakeData(&expectedEvent))
+	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
 	writeProcessExit(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessExit
@@ -400,8 +405,13 @@ func writeNetInfo(t *testing.T, w *bufio.Writer, ni ebpfevents.NetInfo) {
 
 	assert.Nil(t, binary.Write(w, endian.Native, uint32(ni.Transport)))
 	assert.Nil(t, binary.Write(w, endian.Native, uint32(ni.Family)))
-	assert.Nil(t, binary.Write(w, endian.Native, ni.SourceAddress.AsSlice()))
-	assert.Nil(t, binary.Write(w, endian.Native, ni.DestinationAddress.AsSlice()))
+	// Each address is a 16-byte union in struct ebpf_net_info; IPv4 uses
+	// the first 4 bytes.
+	var saddr, daddr [16]byte
+	copy(saddr[:], ni.SourceAddress.AsSlice())
+	copy(daddr[:], ni.DestinationAddress.AsSlice())
+	assert.Nil(t, binary.Write(w, endian.Native, saddr))
+	assert.Nil(t, binary.Write(w, endian.Native, daddr))
 	assert.Nil(t, binary.Write(w, endian.Native, ni.SourcePort))
 	assert.Nil(t, binary.Write(w, endian.Native, ni.DestinationPort))
 	assert.Nil(t, binary.Write(w, endian.Native, ni.NetNs))
