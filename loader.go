@@ -163,7 +163,7 @@ func (l *Loader) pruneUnusedProgs(spec *ebpf.CollectionSpec) {
 			"kprobe__vfs_unlink", "kretprobe__vfs_unlink",
 			"kretprobe__do_filp_open",
 			"kprobe__vfs_rename", "kretprobe__vfs_rename",
-			"kprobe__taskstats_exit",
+			"kprobe__disassociate_ctty",
 			"kprobe__commit_creds",
 			"kretprobe__inet_csk_accept",
 			"kprobe__tcp_v4_connect", "kretprobe__tcp_v4_connect",
@@ -180,7 +180,7 @@ func (l *Loader) pruneUnusedProgs(spec *ebpf.CollectionSpec) {
 			"fentry__vfs_unlink", "fexit__vfs_unlink",
 			"fexit__do_filp_open",
 			"fentry__vfs_rename", "fexit__vfs_rename",
-			"fentry__taskstats_exit",
+			"fentry__disassociate_ctty",
 			"fentry__commit_creds",
 			"fexit__inet_csk_accept",
 			"fexit__tcp_v4_connect",
@@ -238,7 +238,21 @@ func (l *Loader) loadBpf(cache *btf.Cache) error {
 	coll, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{Cache: cache})
 	if err != nil {
 		if !strings.Contains(err.Error(), "bad CO-RE relocation") {
+			var ve *ebpf.VerifierError
+			if errors.As(err, &ve) {
+				return fmt.Errorf("load bpf collection: %w\n%+v", err, ve)
+			}
 			return fmt.Errorf("load bpf collection: %w", err)
+		}
+		// TEST-ONLY DIAGNOSTIC: the retry below drops sched_process_exec/fork and
+		// still returns success, so make it visible in the beat's stderr log.
+		{
+			var ve *ebpf.VerifierError
+			if errors.As(err, &ve) {
+				fmt.Fprintf(os.Stderr, "\nEBPFEVENTS CO-RE RETRY FIRED: downgrading to kprobes, dropping tp_btf programs. First error:\n%+v\n\n", ve)
+			} else {
+				fmt.Fprintf(os.Stderr, "\nEBPFEVENTS CO-RE RETRY FIRED: downgrading to kprobes, dropping tp_btf programs. First error: %v\n\n", err)
+			}
 		}
 		// Fentry/fexit or tp_btf programs have CO-RE relocations that can't be
 		// resolved on this kernel. Fall back to kprobe variants by clearing
@@ -253,6 +267,10 @@ func (l *Loader) loadBpf(cache *btf.Cache) error {
 		pruneRawTpProgs(spec)
 		coll, err = ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{Cache: cache})
 		if err != nil {
+			var ve *ebpf.VerifierError
+			if errors.As(err, &ve) {
+				return fmt.Errorf("load bpf collection: %w\n%+v", err, ve)
+			}
 			return fmt.Errorf("load bpf collection: %w", err)
 		}
 	}
@@ -301,8 +319,8 @@ func (l *Loader) populateObjs() {
 			l.objs.FentryDoUnlinkat = prog
 		case "fentry__mnt_want_write":
 			l.objs.FentryMntWantWrite = prog
-		case "fentry__taskstats_exit":
-			l.objs.FentryTaskstatsExit = prog
+		case "fentry__disassociate_ctty":
+			l.objs.FentryDisassociateCtty = prog
 		case "fentry__tcp_close":
 			l.objs.FentryTcpClose = prog
 		case "fentry__tty_write":
@@ -347,8 +365,8 @@ func (l *Loader) populateObjs() {
 			l.objs.KprobeDoUnlinkat = prog
 		case "kprobe__mnt_want_write":
 			l.objs.KprobeMntWantWrite = prog
-		case "kprobe__taskstats_exit":
-			l.objs.KprobeTaskstatsExit = prog
+		case "kprobe__disassociate_ctty":
+			l.objs.KprobeDisassociateCtty = prog
 		case "kprobe__tcp_close":
 			l.objs.KprobeTcpClose = prog
 		case "kprobe__tcp_v4_connect":
@@ -484,7 +502,7 @@ func (l *Loader) attachBpfProgs() error {
 		err = errors.Join(err, attachFexit(l.objs.FexitDoFilpOpen))
 		err = errors.Join(err, attachFentry(l.objs.FentryVfsRename))
 		err = errors.Join(err, attachFexit(l.objs.FexitVfsRename))
-		err = errors.Join(err, attachFentry(l.objs.FentryTaskstatsExit))
+		err = errors.Join(err, attachFentry(l.objs.FentryDisassociateCtty))
 		err = errors.Join(err, attachFentry(l.objs.FentryCommitCreds))
 		err = errors.Join(err, attachFexit(l.objs.FexitInetCskAccept))
 		err = errors.Join(err, attachFexit(l.objs.FexitTcpV4Connect))
@@ -501,7 +519,7 @@ func (l *Loader) attachBpfProgs() error {
 		err = errors.Join(err, attachKretprobe("do_filp_open", l.objs.KretprobeDoFilpOpen))
 		err = errors.Join(err, attachKprobe("vfs_rename", l.objs.KprobeVfsRename))
 		err = errors.Join(err, attachKretprobe("vfs_rename", l.objs.KretprobeVfsRename))
-		err = errors.Join(err, attachKprobe("taskstats_exit", l.objs.KprobeTaskstatsExit))
+		err = errors.Join(err, attachKprobe("disassociate_ctty", l.objs.KprobeDisassociateCtty))
 		err = errors.Join(err, attachKprobe("commit_creds", l.objs.KprobeCommitCreds))
 		err = errors.Join(err, attachKretprobe("inet_csk_accept", l.objs.KretprobeInetCskAccept))
 		err = errors.Join(err, attachKprobe("tcp_v4_connect", l.objs.KprobeTcpV4Connect))
@@ -609,6 +627,31 @@ func (l *Loader) fillArgExists(funcName, argName string) error {
 	return nil
 }
 
+// fillFieldOffsetAs records the offset of the first of names present in
+// structName, under the constant named for constField.
+//
+// Fields that kernels rename need this. The probe declares one constant and
+// reads it whichever spelling the running kernel uses, which keeps the CO-RE
+// relocation out of the object entirely: a relocation for an absent field is
+// poisoned, and the verifier can reject it even on a branch that is never
+// taken. Two constants named for the two spellings would not work either,
+// because bpf2go collapses runs of underscores when deriving Go identifiers,
+// so off__inode__i_atime__ and off__inode____i_atime__ would clash.
+//
+// A field absent under every spelling is not an error: the constant keeps its
+// zero initialiser, which is what the probes test for.
+func (l *Loader) fillFieldOffsetAs(structName, constField string, names ...string) error {
+	for _, n := range names {
+		off, err := kernel.FieldOffset(l.kbtf, structName, n)
+		if err != nil {
+			continue
+		}
+		l.constants[fmt.Sprintf(fieldOffsetFmt, structName, constField)] = off
+		return nil
+	}
+	return nil
+}
+
 func (l *Loader) fillFieldOffset(structName, fieldName string) error {
 	name := fmt.Sprintf(fieldOffsetFmt, structName, fieldName)
 
@@ -641,19 +684,20 @@ func (l *Loader) fillIndexes() error {
 	if kernel.FieldExists(l.kbtf, "iov_iter", "__iov") {
 		err = errors.Join(err, l.fillFieldOffset("iov_iter", "__iov"))
 	}
+	// kernfs_node.parent was renamed to __parent in 6.15; the probe reads one
+	// offset, filled from whichever spelling the running kernel has.
+	err = errors.Join(err, l.fillFieldOffsetAs("kernfs_node", "__parent", "__parent", "parent"))
+	// tty_driver.type/.subtype changed from short to enum in 6.15, which CO-RE
+	// cannot relocate across, so the probe reads them by offset.
+	err = errors.Join(err, l.fillFieldOffsetAs("tty_driver", "type", "type"))
+	err = errors.Join(err, l.fillFieldOffsetAs("tty_driver", "subtype", "subtype"))
 
 	err = errors.Join(err, l.fillArgIndex("do_truncate", "filp"))
 	err = errors.Join(err, l.fillRetIndex("do_truncate"))
 
-	if kernel.FieldExists(l.kbtf, "inode", "__i_atime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_atime"))
-	}
-	if kernel.FieldExists(l.kbtf, "inode", "__i_mtime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_mtime"))
-	}
-	if kernel.FieldExists(l.kbtf, "inode", "__i_ctime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_ctime"))
-	}
+	// The probes read inode timestamps through CO-RE flavors
+	// (vmlinux_extra.h) and no longer declare off__inode____i_*time__.
+	// Filling a constant the object doesn't declare fails rewriteConstants.
 
 	return err
 }
