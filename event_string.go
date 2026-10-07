@@ -75,11 +75,11 @@ const _Transport_name = "TCP"
 var _Transport_index = [...]uint8{0, 3}
 
 func (i Transport) String() string {
-	i -= 1
-	if i >= Transport(len(_Transport_index)-1) {
-		return "Transport(" + strconv.FormatInt(int64(i+1), 10) + ")"
+	idx := int(i) - 1
+	if i < 1 || idx >= len(_Transport_index)-1 {
+		return "Transport(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _Transport_name[_Transport_index[i]:_Transport_index[i+1]]
+	return _Transport_name[_Transport_index[idx]:_Transport_index[idx+1]]
 }
 func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
@@ -94,11 +94,11 @@ const _Family_name = "InetInet6"
 var _Family_index = [...]uint8{0, 4, 9}
 
 func (i Family) String() string {
-	i -= 1
-	if i >= Family(len(_Family_index)-1) {
-		return "Family(" + strconv.FormatInt(int64(i+1), 10) + ")"
+	idx := int(i) - 1
+	if i < 1 || idx >= len(_Family_index)-1 {
+		return "Family(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _Family_name[_Family_index[i]:_Family_index[i+1]]
+	return _Family_name[_Family_index[idx]:_Family_index[idx+1]]
 }
 func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
@@ -119,10 +119,11 @@ const _FileType_name = "UnknownFileDirSymlinkCharDeviceBlockDeviceNamedPipeSocke
 var _FileType_index = [...]uint8{0, 7, 11, 14, 21, 31, 42, 51, 57}
 
 func (i FileType) String() string {
-	if i >= FileType(len(_FileType_index)-1) {
+	idx := int(i) - 0
+	if i < 0 || idx >= len(_FileType_index)-1 {
 		return "FileType(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _FileType_name[_FileType_index[i]:_FileType_index[i+1]]
+	return _FileType_name[_FileType_index[idx]:_FileType_index[idx+1]]
 }
 func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
@@ -140,8 +141,9 @@ const _FileChangeType_name = "UnknownContentPermissionsOwnerXattrs"
 var _FileChangeType_index = [...]uint8{0, 7, 14, 25, 30, 36}
 
 func (i FileChangeType) String() string {
-	if i >= FileChangeType(len(_FileChangeType_index)-1) {
+	idx := int(i) - 0
+	if i < 0 || idx >= len(_FileChangeType_index)-1 {
 		return "FileChangeType(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _FileChangeType_name[_FileChangeType_index[i]:_FileChangeType_index[i+1]]
+	return _FileChangeType_name[_FileChangeType_index[idx]:_FileChangeType_index[idx+1]]
 }
