@@ -238,21 +238,7 @@ func (l *Loader) loadBpf(cache *btf.Cache) error {
 	coll, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{Cache: cache})
 	if err != nil {
 		if !strings.Contains(err.Error(), "bad CO-RE relocation") {
-			var ve *ebpf.VerifierError
-			if errors.As(err, &ve) {
-				return fmt.Errorf("load bpf collection: %w\n%+v", err, ve)
-			}
 			return fmt.Errorf("load bpf collection: %w", err)
-		}
-		// TEST-ONLY DIAGNOSTIC: the retry below drops sched_process_exec/fork and
-		// still returns success, so make it visible in the beat's stderr log.
-		{
-			var ve *ebpf.VerifierError
-			if errors.As(err, &ve) {
-				fmt.Fprintf(os.Stderr, "\nEBPFEVENTS CO-RE RETRY FIRED: downgrading to kprobes, dropping tp_btf programs. First error:\n%+v\n\n", ve)
-			} else {
-				fmt.Fprintf(os.Stderr, "\nEBPFEVENTS CO-RE RETRY FIRED: downgrading to kprobes, dropping tp_btf programs. First error: %v\n\n", err)
-			}
 		}
 		// Fentry/fexit or tp_btf programs have CO-RE relocations that can't be
 		// resolved on this kernel. Fall back to kprobe variants by clearing
@@ -267,10 +253,6 @@ func (l *Loader) loadBpf(cache *btf.Cache) error {
 		pruneRawTpProgs(spec)
 		coll, err = ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{Cache: cache})
 		if err != nil {
-			var ve *ebpf.VerifierError
-			if errors.As(err, &ve) {
-				return fmt.Errorf("load bpf collection: %w\n%+v", err, ve)
-			}
 			return fmt.Errorf("load bpf collection: %w", err)
 		}
 	}
