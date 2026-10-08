@@ -609,31 +609,6 @@ func (l *Loader) fillArgExists(funcName, argName string) error {
 	return nil
 }
 
-// fillFieldOffsetAs records the offset of the first of names present in
-// structName, under the constant named for constField.
-//
-// Fields that kernels rename need this. The probe declares one constant and
-// reads it whichever spelling the running kernel uses, which keeps the CO-RE
-// relocation out of the object entirely: a relocation for an absent field is
-// poisoned, and the verifier can reject it even on a branch that is never
-// taken. Two constants named for the two spellings would not work either,
-// because bpf2go collapses runs of underscores when deriving Go identifiers,
-// so off__inode__i_atime__ and off__inode____i_atime__ would clash.
-//
-// A field absent under every spelling is not an error: the constant keeps its
-// zero initialiser, which is what the probes test for.
-func (l *Loader) fillFieldOffsetAs(structName, constField string, names ...string) error {
-	for _, n := range names {
-		off, err := kernel.FieldOffset(l.kbtf, structName, n)
-		if err != nil {
-			continue
-		}
-		l.constants[fmt.Sprintf(fieldOffsetFmt, structName, constField)] = off
-		return nil
-	}
-	return nil
-}
-
 func (l *Loader) fillFieldOffset(structName, fieldName string) error {
 	name := fmt.Sprintf(fieldOffsetFmt, structName, fieldName)
 
@@ -666,20 +641,14 @@ func (l *Loader) fillIndexes() error {
 	if kernel.FieldExists(l.kbtf, "iov_iter", "__iov") {
 		err = errors.Join(err, l.fillFieldOffset("iov_iter", "__iov"))
 	}
-	// kernfs_node.parent was renamed to __parent in 6.15; the probe reads one
-	// offset, filled from whichever spelling the running kernel has.
-	err = errors.Join(err, l.fillFieldOffsetAs("kernfs_node", "__parent", "__parent", "parent"))
-	// tty_driver.type/.subtype changed from short to enum in 6.15, which CO-RE
-	// cannot relocate across, so the probe reads them by offset.
-	err = errors.Join(err, l.fillFieldOffsetAs("tty_driver", "type", "type"))
-	err = errors.Join(err, l.fillFieldOffsetAs("tty_driver", "subtype", "subtype"))
 
 	err = errors.Join(err, l.fillArgIndex("do_truncate", "filp"))
 	err = errors.Join(err, l.fillRetIndex("do_truncate"))
 
-	// The probes read inode timestamps through CO-RE flavors
-	// (vmlinux_extra.h) and no longer declare off__inode____i_*time__.
-	// Filling a constant the object doesn't declare fails rewriteConstants.
+	// The probes read inode timestamps, kernfs_node.__parent and
+	// tty_driver.type/.subtype through CO-RE flavors (vmlinux_extra.h) and
+	// declare no offset constants for them. Filling a constant the object
+	// doesn't declare fails rewriteConstants.
 
 	return err
 }

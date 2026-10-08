@@ -284,38 +284,6 @@ func TestPruneRawTpProgs(t *testing.T) {
 	}
 }
 
-func TestFillFieldOffsetAs(t *testing.T) {
-	const constant = "off__kernfs_node____parent__"
-
-	cases := []struct {
-		name    string
-		members []string
-		want    any // nil: the constant must not be set
-	}{
-		{name: "6.15+: __parent", members: []string{"count", "__parent"}, want: uint32(8)},
-		{name: "before 6.15: parent", members: []string{"count", "active", "parent"}, want: uint32(16)},
-		{name: "both: __parent wins", members: []string{"count", "parent", "__parent"}, want: uint32(16)},
-		{name: "neither", members: []string{"count"}, want: nil},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			l := &Loader{
-				constants: map[string]any{},
-				kbtf:      testKernelBTF(t, testStruct("kernfs_node", tc.members...)),
-			}
-			require.NoError(t, l.fillFieldOffsetAs("kernfs_node", "__parent", "__parent", "parent"))
-
-			got, ok := l.constants[constant]
-			if tc.want == nil {
-				assert.False(t, ok, "an absent field must leave the constant unset")
-				return
-			}
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 // TestLoaderConstantsMatchObject checks that every constant fillIndexes can
 // set is declared by the object. rewriteConstants fails on any constant the
 // object doesn't declare, which makes NewLoader fail on every kernel that
@@ -329,10 +297,11 @@ func TestLoaderConstantsMatchObject(t *testing.T) {
 		testFunc("do_truncate", "idmap", "dentry", "length", "time_attrs", "filp"),
 		testStruct("tty_driver", "major", "minor_start", "type", "subtype"),
 	}
-	// struct inode is included in each of its three layouts so that a fill
-	// keyed on any timestamp spelling would be exercised. want lists the
-	// offsets the probes depend on: if one is missing, the probe reads offset
-	// 0 and silently reports the wrong cgroup path or tty, with no load error.
+	// struct inode is included in each of its three layouts, and kernfs_node
+	// and tty_driver in their old and new ones, so that a fill keyed on any
+	// spelling would be exercised. The probes read all of them through CO-RE
+	// flavors, so the object must declare no offset constant for them. want
+	// lists the offsets the probes do depend on.
 	kernels := []struct {
 		name  string
 		types []btf.Type
@@ -348,10 +317,7 @@ func TestLoaderConstantsMatchObject(t *testing.T) {
 					"i_atime_nsec", "i_mtime_nsec", "i_ctime_nsec"),
 			}, common...),
 			want: map[string]uint32{
-				"off__iov_iter____iov__":       8,
-				"off__kernfs_node____parent__": 8,
-				"off__tty_driver__type__":      16,
-				"off__tty_driver__subtype__":   24,
+				"off__iov_iter____iov__": 8,
 			},
 		},
 		{
@@ -363,10 +329,7 @@ func TestLoaderConstantsMatchObject(t *testing.T) {
 				testStruct("inode", "i_mode", "__i_atime", "__i_mtime", "__i_ctime"),
 			}, common...),
 			want: map[string]uint32{
-				"off__iov_iter____iov__":       8,
-				"off__kernfs_node____parent__": 16,
-				"off__tty_driver__type__":      16,
-				"off__tty_driver__subtype__":   24,
+				"off__iov_iter____iov__": 8,
 			},
 		},
 		{
@@ -377,11 +340,6 @@ func TestLoaderConstantsMatchObject(t *testing.T) {
 				testStruct("kernfs_node", "count", "parent"),
 				testStruct("inode", "i_mode", "i_atime", "i_mtime", "i_ctime"),
 			}, common...),
-			want: map[string]uint32{
-				"off__kernfs_node____parent__": 8,
-				"off__tty_driver__type__":      16,
-				"off__tty_driver__subtype__":   24,
-			},
 		},
 	}
 
