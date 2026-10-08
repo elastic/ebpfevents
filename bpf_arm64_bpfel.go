@@ -87,9 +87,6 @@ const (
 	bpfVarConsumerPid                            = "consumer_pid"
 	bpfVarExistsVfsRenameRd                      = "exists__vfs_rename__rd__"
 	bpfVarOffIovIterIov                          = "off__iov_iter____iov__"
-	bpfVarOffKernfsNodeParent                    = "off__kernfs_node____parent__"
-	bpfVarOffTtyDriverSubtype                    = "off__tty_driver__subtype__"
-	bpfVarOffTtyDriverType                       = "off__tty_driver__type__"
 	bpfVarRetDoTruncate                          = "ret__do_truncate__"
 	bpfVarRetInetCskAccept                       = "ret__inet_csk_accept__"
 	bpfVarRetVfsRename                           = "ret__vfs_rename__"
@@ -221,9 +218,6 @@ type bpfVariableSpecs struct {
 	ConsumerPid           *ebpf.VariableSpec `ebpf:"consumer_pid"`
 	ExistsVfsRenameRd     *ebpf.VariableSpec `ebpf:"exists__vfs_rename__rd__"`
 	OffIovIterIov         *ebpf.VariableSpec `ebpf:"off__iov_iter____iov__"`
-	OffKernfsNodeParent   *ebpf.VariableSpec `ebpf:"off__kernfs_node____parent__"`
-	OffTtyDriverSubtype   *ebpf.VariableSpec `ebpf:"off__tty_driver__subtype__"`
-	OffTtyDriverType      *ebpf.VariableSpec `ebpf:"off__tty_driver__type__"`
 	RetDoTruncate         *ebpf.VariableSpec `ebpf:"ret__do_truncate__"`
 	RetInetCskAccept      *ebpf.VariableSpec `ebpf:"ret__inet_csk_accept__"`
 	RetVfsRename          *ebpf.VariableSpec `ebpf:"ret__vfs_rename__"`
@@ -288,9 +282,6 @@ type bpfVariables struct {
 	ConsumerPid           *ebpf.Variable `ebpf:"consumer_pid"`
 	ExistsVfsRenameRd     *ebpf.Variable `ebpf:"exists__vfs_rename__rd__"`
 	OffIovIterIov         *ebpf.Variable `ebpf:"off__iov_iter____iov__"`
-	OffKernfsNodeParent   *ebpf.Variable `ebpf:"off__kernfs_node____parent__"`
-	OffTtyDriverSubtype   *ebpf.Variable `ebpf:"off__tty_driver__subtype__"`
-	OffTtyDriverType      *ebpf.Variable `ebpf:"off__tty_driver__type__"`
 	RetDoTruncate         *ebpf.Variable `ebpf:"ret__do_truncate__"`
 	RetInetCskAccept      *ebpf.Variable `ebpf:"ret__inet_csk_accept__"`
 	RetVfsRename          *ebpf.Variable `ebpf:"ret__vfs_rename__"`
