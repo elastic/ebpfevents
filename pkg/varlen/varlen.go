@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/elastic/ebpfevents/pkg/endian"
@@ -71,12 +72,20 @@ func DeserializeVarlenFields(r *bytes.Reader) (Map, error) {
 		}
 
 		switch field.typ {
-		case Cwd, Filename, Path, OldPath, NewPath, TTYOutput, CgroupPath, SymlinkTargetPath:
+		case Cwd, Filename, Path, OldPath, NewPath, CgroupPath, SymlinkTargetPath:
 			str, err := deserializeVarlenString(r, field.size)
 			if err != nil {
 				return nil, fmt.Errorf("deserialize varlen string: %v", err)
 			}
 			ret[field.typ] = str
+		case TTYOutput:
+			// The probe copies the written bytes as they are, with no null
+			// terminator: every byte of the field is output.
+			buf := make([]byte, field.size)
+			if _, err := io.ReadFull(r, buf); err != nil {
+				return nil, fmt.Errorf("deserialize varlen tty output: %v", err)
+			}
+			ret[field.typ] = string(buf)
 		case Argv:
 			argv, err := deserializeVarlenArgv(r, field.size)
 			if err != nil {

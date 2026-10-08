@@ -20,10 +20,12 @@ package varlen_test
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/elastic/ebpfevents/pkg/endian"
 	"github.com/elastic/ebpfevents/pkg/testutils"
 	"github.com/elastic/ebpfevents/pkg/varlen"
 )
@@ -49,4 +51,22 @@ func TestDeserializeVarlenFields(t *testing.T) {
 	assert.Nil(t, err)
 
 	assert.Equal(t, expectedMap, m)
+}
+
+// TestDeserializeTTYOutputKeepsLastByte builds the field the way the probe
+// does, without testutils: tty output is the written bytes with no null
+// terminator, so its last byte is data.
+func TestDeserializeTTYOutputKeepsLastByte(t *testing.T) {
+	out := []byte("ls\n")
+
+	buf := bytes.NewBuffer(nil)
+	assert.Nil(t, binary.Write(buf, endian.Native, uint32(1)))          // nfields
+	assert.Nil(t, binary.Write(buf, endian.Native, uint64(8+len(out)))) // size
+	assert.Nil(t, binary.Write(buf, endian.Native, varlen.TTYOutput))   // field type
+	assert.Nil(t, binary.Write(buf, endian.Native, uint32(len(out))))   // field size
+	buf.Write(out)
+
+	m, err := varlen.DeserializeVarlenFields(bytes.NewReader(buf.Bytes()))
+	assert.Nil(t, err)
+	assert.Equal(t, "ls\n", m[varlen.TTYOutput])
 }
