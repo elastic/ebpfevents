@@ -163,7 +163,7 @@ func (l *Loader) pruneUnusedProgs(spec *ebpf.CollectionSpec) {
 			"kprobe__vfs_unlink", "kretprobe__vfs_unlink",
 			"kretprobe__do_filp_open",
 			"kprobe__vfs_rename", "kretprobe__vfs_rename",
-			"kprobe__taskstats_exit",
+			"kprobe__disassociate_ctty",
 			"kprobe__commit_creds",
 			"kretprobe__inet_csk_accept",
 			"kprobe__tcp_v4_connect", "kretprobe__tcp_v4_connect",
@@ -180,7 +180,7 @@ func (l *Loader) pruneUnusedProgs(spec *ebpf.CollectionSpec) {
 			"fentry__vfs_unlink", "fexit__vfs_unlink",
 			"fexit__do_filp_open",
 			"fentry__vfs_rename", "fexit__vfs_rename",
-			"fentry__taskstats_exit",
+			"fentry__disassociate_ctty",
 			"fentry__commit_creds",
 			"fexit__inet_csk_accept",
 			"fexit__tcp_v4_connect",
@@ -301,8 +301,8 @@ func (l *Loader) populateObjs() {
 			l.objs.FentryDoUnlinkat = prog
 		case "fentry__mnt_want_write":
 			l.objs.FentryMntWantWrite = prog
-		case "fentry__taskstats_exit":
-			l.objs.FentryTaskstatsExit = prog
+		case "fentry__disassociate_ctty":
+			l.objs.FentryDisassociateCtty = prog
 		case "fentry__tcp_close":
 			l.objs.FentryTcpClose = prog
 		case "fentry__tty_write":
@@ -347,8 +347,8 @@ func (l *Loader) populateObjs() {
 			l.objs.KprobeDoUnlinkat = prog
 		case "kprobe__mnt_want_write":
 			l.objs.KprobeMntWantWrite = prog
-		case "kprobe__taskstats_exit":
-			l.objs.KprobeTaskstatsExit = prog
+		case "kprobe__disassociate_ctty":
+			l.objs.KprobeDisassociateCtty = prog
 		case "kprobe__tcp_close":
 			l.objs.KprobeTcpClose = prog
 		case "kprobe__tcp_v4_connect":
@@ -484,7 +484,7 @@ func (l *Loader) attachBpfProgs() error {
 		err = errors.Join(err, attachFexit(l.objs.FexitDoFilpOpen))
 		err = errors.Join(err, attachFentry(l.objs.FentryVfsRename))
 		err = errors.Join(err, attachFexit(l.objs.FexitVfsRename))
-		err = errors.Join(err, attachFentry(l.objs.FentryTaskstatsExit))
+		err = errors.Join(err, attachFentry(l.objs.FentryDisassociateCtty))
 		err = errors.Join(err, attachFentry(l.objs.FentryCommitCreds))
 		err = errors.Join(err, attachFexit(l.objs.FexitInetCskAccept))
 		err = errors.Join(err, attachFexit(l.objs.FexitTcpV4Connect))
@@ -501,7 +501,7 @@ func (l *Loader) attachBpfProgs() error {
 		err = errors.Join(err, attachKretprobe("do_filp_open", l.objs.KretprobeDoFilpOpen))
 		err = errors.Join(err, attachKprobe("vfs_rename", l.objs.KprobeVfsRename))
 		err = errors.Join(err, attachKretprobe("vfs_rename", l.objs.KretprobeVfsRename))
-		err = errors.Join(err, attachKprobe("taskstats_exit", l.objs.KprobeTaskstatsExit))
+		err = errors.Join(err, attachKprobe("disassociate_ctty", l.objs.KprobeDisassociateCtty))
 		err = errors.Join(err, attachKprobe("commit_creds", l.objs.KprobeCommitCreds))
 		err = errors.Join(err, attachKretprobe("inet_csk_accept", l.objs.KretprobeInetCskAccept))
 		err = errors.Join(err, attachKprobe("tcp_v4_connect", l.objs.KprobeTcpV4Connect))
@@ -645,15 +645,10 @@ func (l *Loader) fillIndexes() error {
 	err = errors.Join(err, l.fillArgIndex("do_truncate", "filp"))
 	err = errors.Join(err, l.fillRetIndex("do_truncate"))
 
-	if kernel.FieldExists(l.kbtf, "inode", "__i_atime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_atime"))
-	}
-	if kernel.FieldExists(l.kbtf, "inode", "__i_mtime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_mtime"))
-	}
-	if kernel.FieldExists(l.kbtf, "inode", "__i_ctime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_ctime"))
-	}
+	// The probes read inode timestamps, kernfs_node.__parent and
+	// tty_driver.type/.subtype through CO-RE flavors (vmlinux_extra.h) and
+	// declare no offset constants for them. Filling a constant the object
+	// doesn't declare fails rewriteConstants.
 
 	return err
 }
