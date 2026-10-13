@@ -49,6 +49,12 @@ type Loader struct {
 	links  []link.Link
 	reader *ringbuf.Reader
 
+	// load fallbacks, see loadColl
+	dropped  []string // tp_btf programs dropped because they failed to load
+	degraded error    // the load failures that led to a fallback
+	// newColl is ebpf.NewCollectionWithOptions, replaced in tests.
+	newColl func(*ebpf.CollectionSpec, ebpf.CollectionOptions) (*ebpf.Collection, error)
+
 	// .rodata constants
 	constants map[string]any
 }
@@ -70,26 +76,26 @@ func NewLoader() (*Loader, error) {
 	l.constants["consumer_pid"] = uint32(os.Getpid())
 
 	if err := kernel.CheckSupported(); err != nil {
-		return nil, fmt.Errorf("check kernel version: %v", err)
+		return nil, fmt.Errorf("check kernel version: %w", err)
 	}
 
 	cache := btf.NewCache()
 	kbtf, err := cache.Kernel()
 	if err != nil {
-		return nil, fmt.Errorf("load kernel btf: %v", err)
+		return nil, fmt.Errorf("load kernel btf: %w", err)
 	}
 	l.kbtf = kbtf
 	l.hasBpfTramp = kernel.HasBpfTramp()
 
 	if err := l.fillIndexes(); err != nil {
-		return nil, fmt.Errorf("fill indexes: %v", err)
+		return nil, fmt.Errorf("fill indexes: %w", err)
 	}
 	if err := l.loadBpf(cache); err != nil {
 		// loadBpf can fail after loading the collection, with the ring buffer
 		// reader open and some programs attached. Release them now rather
 		// than leave the links live in the kernel until finalizers run.
 		_ = l.Close()
-		return nil, fmt.Errorf("load bpf: %v", err)
+		return nil, fmt.Errorf("load bpf: %w", err)
 	}
 
 	// Kernel BTF is only needed during load. Drop the last reference to
@@ -162,11 +168,11 @@ var fixedProgs = []string{
 	bpfProgTracepointSyscallsSysExitSetsid,
 }
 
-// pruneUnusedProgs picks the programs to attach: fixedProgs and, for every
-// dual function, the fentry/fexit programs if the kernel has BPF trampolines
-// and the function is in kernel BTF, or the kprobe/kretprobe programs
-// otherwise. It deletes every other program from spec, so what is left is
-// what attachBpfProgs attaches.
+// pruneUnusedProgs picks the programs to attach: fixedProgs, less any the
+// load fallback dropped, and, for every dual function, the fentry/fexit
+// programs if the kernel has BPF trampolines and the function is in kernel
+// BTF, or the kprobe/kretprobe programs otherwise. It deletes every other
+// program from spec, so what is left is what attachBpfProgs attaches.
 //
 // An fentry/fexit program whose target is missing from kernel BTF fails to
 // load with ErrNotSupported, which fails the whole collection. pahole drops
@@ -177,7 +183,9 @@ var fixedProgs = []string{
 // is never attached can only make the load fail. module_load, for one, needs
 // btf_trace_module_load, which kernels built without CONFIG_MODULES lack.
 func (l *Loader) pruneUnusedProgs(spec *ebpf.CollectionSpec) {
-	picked := slices.Clone(fixedProgs)
+	picked := slices.DeleteFunc(slices.Clone(fixedProgs), func(name string) bool {
+		return slices.Contains(l.dropped, name)
+	})
 	for _, df := range dualFuncs {
 		if l.hasBpfTramp && kernel.FuncExists(l.kbtf, df.fn) {
 			picked = append(picked, df.tracing...)
@@ -195,24 +203,131 @@ func (l *Loader) pruneUnusedProgs(spec *ebpf.CollectionSpec) {
 func (l *Loader) prepareSpec() (*ebpf.CollectionSpec, error) {
 	spec, err := loadBpf()
 	if err != nil {
-		return nil, fmt.Errorf("load collection: %v", err)
+		return nil, fmt.Errorf("load collection: %w", err)
 	}
 	if err := l.rewriteConstants(spec); err != nil {
-		return nil, fmt.Errorf("rewrite constants: %v", err)
+		return nil, fmt.Errorf("rewrite constants: %w", err)
 	}
 	spec.Maps[bpfMapEventBufferMap].MaxEntries = uint32(runtime.NumCPU())
 	l.pruneUnusedProgs(spec)
 	return spec, nil
 }
 
-// pruneRawTpProgs removes all BPF_TRACE_RAW_TP (tp_btf) programs from spec.
-// These programs have no kprobe fallback, so if they fail CO-RE relocation they
-// must be dropped entirely rather than retried with an alternative.
-func pruneRawTpProgs(spec *ebpf.CollectionSpec) {
-	for name, prog := range spec.Programs {
-		if prog.Type == ebpf.Tracing && prog.AttachType == ebpf.AttachTraceRawTp {
-			delete(spec.Programs, name)
+// cilium/ebpf replaces an instruction whose CO-RE relocation it can't resolve
+// against kernel BTF with a call to, or a load of, btf.COREBadRelocationSentinel,
+// and the verifier rejects the program there. These are the verifier log lines
+// for the two, as cilium/ebpf itself matches them (prog.go).
+var (
+	coreBadCall = fmt.Sprintf("invalid func unknown#%d", btf.COREBadRelocationSentinel)
+	coreBadLoad = fmt.Sprintf("r10 = 0x%x", btf.COREBadRelocationSentinel)
+)
+
+// isBadRelocation reports whether err is the verifier rejecting a program at
+// an instruction poisoned for a CO-RE relocation that couldn't be resolved.
+// TestNewLoaderLoadErrors checks it against the running kernel.
+func isBadRelocation(err error) bool {
+	var ve *ebpf.VerifierError
+	if !errors.As(err, &ve) {
+		return false
+	}
+	for _, line := range ve.Log {
+		if strings.Contains(line, coreBadCall) || strings.Contains(line, coreBadLoad) {
+			return true
 		}
+	}
+	return false
+}
+
+// rawTpEvents are the events the tp_btf programs emit. They have no kprobe
+// variant, so if one fails to load, its events are lost.
+var rawTpEvents = map[string]EventType{
+	bpfProgSchedProcessExec: EventTypeProcessExec,
+	bpfProgSchedProcessFork: EventTypeProcessFork,
+}
+
+// failedProg returns the program in spec that err, a NewCollectionWithOptions
+// error, is about. cilium/ebpf prefixes it with "program <name>:", which
+// TestNewLoaderLoadErrors pins.
+func failedProg(spec *ebpf.CollectionSpec, err error) (string, bool) {
+	msg := err.Error()
+	for name := range spec.Programs {
+		if strings.HasPrefix(msg, "program "+name+":") {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// fallBack changes what the next load attempt picks so that it avoids err,
+// the failure to load spec. It returns what it gave up, or false if no other
+// choice of programs avoids err.
+//
+// Only a bad CO-RE relocation or ErrNotSupported (such as an fentry target
+// missing from kernel BTF) depends on the programs chosen, and only in a
+// program that has an alternative:
+//   - fentry/fexit: every dual function switches to its kprobe variant. The
+//     variants share helpers, so one fentry program failing tends to come
+//     with others failing; switching them together costs one retry, not one
+//     per program.
+//   - tp_btf: the program is dropped, and the events only it emits are lost.
+//     DisabledEvents reports them.
+func (l *Loader) fallBack(spec *ebpf.CollectionSpec, err error) (string, bool) {
+	if !isBadRelocation(err) && !errors.Is(err, ebpf.ErrNotSupported) {
+		return "", false
+	}
+	name, ok := failedProg(spec, err)
+	if !ok {
+		return "", false
+	}
+	ps := spec.Programs[name]
+	if ps.Type != ebpf.Tracing {
+		return "", false
+	}
+	switch ps.AttachType {
+	case ebpf.AttachTraceFEntry, ebpf.AttachTraceFExit:
+		if !l.hasBpfTramp {
+			return "", false
+		}
+		l.hasBpfTramp = false
+		return "fell back to kprobes", true
+	case ebpf.AttachTraceRawTp:
+		ev, ok := rawTpEvents[name]
+		if !ok {
+			return "", false
+		}
+		l.dropped = append(l.dropped, name)
+		return fmt.Sprintf("dropped %s, no %s events", name, ev), true
+	}
+	return "", false
+}
+
+// loadColl loads the programs pruneUnusedProgs picks. When a program fails in
+// a way another choice avoids (see fallBack), it falls back and tries again.
+// Each fallback can happen only once, so there are at most three retries.
+func (l *Loader) loadColl(cache *btf.Cache) (*ebpf.Collection, *ebpf.CollectionSpec, error) {
+	newColl := l.newColl
+	if newColl == nil {
+		newColl = ebpf.NewCollectionWithOptions
+	}
+
+	var fallbacks []error
+	for {
+		spec, err := l.prepareSpec()
+		if err != nil {
+			return nil, nil, err
+		}
+		coll, err := newColl(spec, ebpf.CollectionOptions{Cache: cache})
+		if err == nil {
+			l.degraded = errors.Join(fallbacks...)
+			return coll, spec, nil
+		}
+		gaveUp, ok := l.fallBack(spec, err)
+		if !ok {
+			// The failures that led here too: without them, an error in a
+			// kprobe program wouldn't say that kprobes were the fallback.
+			return nil, nil, fmt.Errorf("load bpf collection: %w", errors.Join(append(fallbacks, err)...))
+		}
+		fallbacks = append(fallbacks, fmt.Errorf("%s: %w", gaveUp, err))
 	}
 }
 
@@ -223,42 +338,20 @@ func (l *Loader) loadBpf(cache *btf.Cache) error {
 	// will fail with a more specific error.
 	_ = rlimit.RemoveMemlock()
 
-	spec, err := l.prepareSpec()
+	coll, spec, err := l.loadColl(cache)
 	if err != nil {
 		return err
-	}
-
-	coll, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{Cache: cache})
-	if err != nil {
-		if !strings.Contains(err.Error(), "bad CO-RE relocation") {
-			return fmt.Errorf("load bpf collection: %w", err)
-		}
-		// Fentry/fexit or tp_btf programs have CO-RE relocations that can't be
-		// resolved on this kernel. Fall back to kprobe variants by clearing
-		// hasBpfTramp and reloading a fresh spec (the first attempt already pruned
-		// the kprobe programs). Also drop tp_btf programs which have no kprobe
-		// fallback.
-		l.hasBpfTramp = false
-		spec, err = l.prepareSpec()
-		if err != nil {
-			return err
-		}
-		pruneRawTpProgs(spec)
-		coll, err = ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{Cache: cache})
-		if err != nil {
-			return fmt.Errorf("load bpf collection: %w", err)
-		}
 	}
 	l.coll = coll
 
 	rd, err := ringbuf.NewReader(l.coll.Maps[bpfMapRingbuf])
 	if err != nil {
-		return fmt.Errorf("error opening ringbuf reader: %v", err)
+		return fmt.Errorf("error opening ringbuf reader: %w", err)
 	}
 	l.reader = rd
 
 	if err := l.attachBpfProgs(spec); err != nil {
-		return fmt.Errorf("error attaching bpf programs: %v", err)
+		return fmt.Errorf("error attaching bpf programs: %w", err)
 	}
 
 	// Kernel BTF is only needed up to this point, release it so the
@@ -275,7 +368,7 @@ func (l *Loader) attachBpfProgs(spec *ebpf.CollectionSpec) error {
 			AttachType: at,
 		})
 		if err != nil {
-			return fmt.Errorf("attach tracing %q: %v", prog.String(), err)
+			return fmt.Errorf("attach tracing %q: %w", prog.String(), err)
 		}
 		l.links = append(l.links, lnk)
 		return nil
@@ -283,7 +376,7 @@ func (l *Loader) attachBpfProgs(spec *ebpf.CollectionSpec) error {
 	attachKprobe := func(sym string, prog *ebpf.Program) error {
 		lnk, err := link.Kprobe(sym, prog, nil)
 		if err != nil {
-			return fmt.Errorf("attach kprobe %q: %v", prog.String(), err)
+			return fmt.Errorf("attach kprobe %q: %w", prog.String(), err)
 		}
 		l.links = append(l.links, lnk)
 		return nil
@@ -291,7 +384,7 @@ func (l *Loader) attachBpfProgs(spec *ebpf.CollectionSpec) error {
 	attachKretprobe := func(sym string, prog *ebpf.Program) error {
 		lnk, err := link.Kretprobe(sym, prog, nil)
 		if err != nil {
-			return fmt.Errorf("attach kretprobe %q: %v", prog.String(), err)
+			return fmt.Errorf("attach kretprobe %q: %w", prog.String(), err)
 		}
 		l.links = append(l.links, lnk)
 		return nil
@@ -299,7 +392,7 @@ func (l *Loader) attachBpfProgs(spec *ebpf.CollectionSpec) error {
 	attachTracepoint := func(group, name string, prog *ebpf.Program) error {
 		lnk, err := link.Tracepoint(group, name, prog, nil)
 		if err != nil {
-			return fmt.Errorf("attach tracepoint '%s/%s': %v", group, name, err)
+			return fmt.Errorf("attach tracepoint '%s/%s': %w", group, name, err)
 		}
 		l.links = append(l.links, lnk)
 		return nil
@@ -362,6 +455,25 @@ func (l *Loader) EventLoop(ctx context.Context, out chan<- Record) {
 	}
 }
 
+// DisabledEvents returns the event types the loader can't produce on this
+// kernel, because the only programs that emit them failed to load. It is
+// empty unless NewLoader had to fall back, and Degraded says why.
+func (l *Loader) DisabledEvents() []EventType {
+	var evs []EventType
+	for _, name := range l.dropped {
+		evs = append(evs, rawTpEvents[name])
+	}
+	return evs
+}
+
+// Degraded returns the load failures NewLoader worked around, each with what
+// it gave up for it, or nil if it loaded what it normally does. Not an error
+// for NewLoader's caller to fail on, but one to log: when it reports dropped
+// programs, events are missing (see DisabledEvents).
+func (l *Loader) Degraded() error {
+	return l.degraded
+}
+
 func (l *Loader) BufferLen() uint32 {
 	return l.coll.Maps[bpfMapRingbuf].MaxEntries()
 }
@@ -385,7 +497,7 @@ func (l *Loader) fillArgIndex(funcName, argName string) error {
 
 	idx, err := kernel.ArgIdxByFunc(l.kbtf, funcName, argName)
 	if err != nil {
-		return fmt.Errorf("fill %s: %v", name, err)
+		return fmt.Errorf("fill %s: %w", name, err)
 	}
 	l.constants[name] = idx
 
@@ -397,7 +509,7 @@ func (l *Loader) fillRetIndex(funcName string) error {
 
 	idx, err := kernel.RetIdxByFunc(l.kbtf, funcName)
 	if err != nil {
-		return fmt.Errorf("fill %s: %v", name, err)
+		return fmt.Errorf("fill %s: %w", name, err)
 	}
 	l.constants[name] = idx
 
@@ -415,7 +527,7 @@ func (l *Loader) fillFieldOffset(structName, fieldName string) error {
 
 	off, err := kernel.FieldOffset(l.kbtf, structName, fieldName)
 	if err != nil {
-		return fmt.Errorf("fill %s: %v", name, err)
+		return fmt.Errorf("fill %s: %w", name, err)
 	}
 	l.constants[name] = off
 

@@ -21,19 +21,23 @@ package ebpfevents
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/btf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // These tests cover the loader without loading anything into a kernel, so
-// they need neither root nor BPF support and run in CI, unlike TestNewLoader.
+// they need neither root nor BPF support and run in CI, unlike TestNewLoader
+// and TestNewLoaderLoadErrors.
 // Kernel BTF is synthesised where a test needs to control which functions and
 // fields "exist".
 
@@ -262,27 +266,258 @@ func TestProgramsAccountedFor(t *testing.T) {
 	}
 }
 
-func TestPruneRawTpProgs(t *testing.T) {
-	spec, err := loadBpf()
-	require.NoError(t, err)
+// testLoader returns a Loader set up as NewLoader sets one up on a kernel
+// with BPF trampolines and every dual function in BTF, minus the constants,
+// which prepareSpec then has none to rewrite.
+func testLoader(t *testing.T) *Loader {
+	t.Helper()
 
-	var rawTp, rest []string
-	for name, p := range spec.Programs {
-		if p.Type == ebpf.Tracing && p.AttachType == ebpf.AttachTraceRawTp {
-			rawTp = append(rawTp, name)
-		} else {
-			rest = append(rest, name)
+	var types []btf.Type
+	for _, df := range dualFuncs {
+		types = append(types, testFunc(df.fn))
+	}
+	return &Loader{hasBpfTramp: true, kbtf: testKernelBTF(t, types...), constants: map[string]any{}}
+}
+
+// loadErr returns the error NewCollectionWithOptions returns when program name
+// fails to load with cause.
+func loadErr(name string, cause error) error {
+	return fmt.Errorf("program %s: load program: %w", name, cause)
+}
+
+// Load errors as cilium/ebpf returns them. The bad relocations carry the
+// verifier log lines of the two kinds of poisoned instruction.
+var (
+	errTestBadRelocation = &ebpf.VerifierError{Cause: errors.New("bad CO-RE relocation"), Log: []string{
+		"0: R1=ctx() R10=fp0", "; int BPF_PROG(fexit__vfs_write, ...)", "0: (85) call unknown#195896080", "invalid func unknown#195896080",
+	}}
+	errTestBadReloc2 = &ebpf.VerifierError{Cause: errors.New("bad CO-RE relocation"), Log: []string{
+		"0: R1=ctx() R10=fp0", "0: (18) r10 = 0xbad2310", "frame pointer is read only",
+	}}
+	// Rejected by the verifier, but not at a poisoned instruction.
+	errTestVerifier = &ebpf.VerifierError{Cause: errors.New("permission denied"), Log: []string{
+		"0: R1=ctx() R10=fp0", "0: (79) r2 = *(u64 *)(r1 +4096)", "invalid bpf_context access off=4096 size=8",
+	}}
+	errTestNotSupported = fmt.Errorf("fexit do_filp_open: %w", ebpf.ErrNotSupported)
+	errTestPermission   = errors.New("operation not permitted")
+)
+
+func TestFallBack(t *testing.T) {
+	cases := []struct {
+		name        string
+		noTramp     bool // the loader already uses kprobes
+		prog        string
+		cause       error
+		wantOK      bool
+		wantTramp   bool
+		wantDropped []string
+	}{
+		{name: "fexit, bad relocation", prog: bpfProgFexitVfsWrite, cause: errTestBadRelocation, wantOK: true},
+		// The beats#46719 7.0 failure, should a target go missing despite
+		// the FuncExists check.
+		{name: "fexit, target not supported", prog: bpfProgFexitDoFilpOpen, cause: errTestNotSupported, wantOK: true},
+		{name: "tp_btf exec, bad relocation", prog: bpfProgSchedProcessExec, cause: errTestBadRelocation,
+			wantOK: true, wantTramp: true, wantDropped: []string{bpfProgSchedProcessExec}},
+		{name: "tp_btf fork, bad relocation", prog: bpfProgSchedProcessFork, cause: errTestBadRelocation,
+			wantOK: true, wantTramp: true, wantDropped: []string{bpfProgSchedProcessFork}},
+		{name: "fexit, bad relocation in a load", prog: bpfProgFexitVfsUnlink, cause: errTestBadReloc2, wantOK: true},
+		{name: "fentry, other error", prog: bpfProgFentryDoUnlinkat, cause: errTestPermission, wantTramp: true},
+		{name: "fentry, verifier rejects elsewhere", prog: bpfProgFentryDoUnlinkat, cause: errTestVerifier, wantTramp: true},
+		{name: "tracepoint, bad relocation", prog: bpfProgTracepointSyscallsSysExitSetsid, cause: errTestBadRelocation, wantTramp: true},
+		{name: "kprobe, bad relocation", noTramp: true, prog: bpfProgKretprobeVfsWrite, cause: errTestBadRelocation},
+		{name: "program not in the spec", prog: "no_such_program", cause: errTestBadRelocation, wantTramp: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := testLoader(t)
+			l.hasBpfTramp = !tc.noTramp
+			spec, err := l.prepareSpec()
+			require.NoError(t, err)
+			if tc.prog != "no_such_program" {
+				require.Contains(t, spec.Programs, tc.prog)
+			}
+
+			gaveUp, ok := l.fallBack(spec, loadErr(tc.prog, tc.cause))
+			assert.Equal(t, tc.wantOK, ok, "fallback taken")
+			assert.Equal(t, tc.wantOK, gaveUp != "", "fallback described: %q", gaveUp)
+			assert.Equal(t, tc.wantTramp, l.hasBpfTramp, "hasBpfTramp")
+			assert.Equal(t, tc.wantDropped, l.dropped, "dropped")
+		})
+	}
+}
+
+func TestLoadColl(t *testing.T) {
+	type failure struct {
+		prog  string
+		cause error
+	}
+	tracing := func(names []string) bool {
+		for _, df := range dualFuncs {
+			for _, name := range df.tracing {
+				if slices.Contains(names, name) {
+					return true
+				}
+			}
 		}
+		return false
 	}
-	require.NotEmpty(t, rawTp, "the object should contain tp_btf programs")
 
-	pruneRawTpProgs(spec)
-
-	for _, name := range rawTp {
-		assert.NotContains(t, spec.Programs, name)
+	cases := []struct {
+		name     string
+		fails    []failure // programs that fail to load on this "kernel"
+		attempts int
+		wantErr  []string // in the error, if loading fails
+		tracing  bool     // the last attempt loads fentry/fexit programs
+		disabled []EventType
+	}{
+		{name: "nothing fails", attempts: 1, tracing: true},
+		{
+			name:     "fexit fails",
+			fails:    []failure{{bpfProgFexitVfsWrite, errTestBadRelocation}},
+			attempts: 2,
+		},
+		{
+			name:     "tp_btf fork fails",
+			fails:    []failure{{bpfProgSchedProcessFork, errTestBadRelocation}},
+			attempts: 2,
+			tracing:  true,
+			disabled: []EventType{EventTypeProcessFork},
+		},
+		{
+			name: "fexit and both tp_btf fail",
+			fails: []failure{
+				{bpfProgFexitVfsWrite, errTestBadRelocation},
+				{bpfProgSchedProcessExec, errTestBadRelocation},
+				{bpfProgSchedProcessFork, errTestBadRelocation},
+			},
+			attempts: 4,
+			disabled: []EventType{EventTypeProcessExec, EventTypeProcessFork},
+		},
+		{
+			// The variants share helpers, so the kprobe one fails too. The
+			// error has to show both, and that kprobes were the fallback.
+			name: "fexit fails, then its kprobe variant",
+			fails: []failure{
+				{bpfProgFexitVfsWrite, errTestBadRelocation},
+				{bpfProgKretprobeVfsWrite, errTestBadReloc2},
+			},
+			attempts: 2,
+			wantErr:  []string{"program " + bpfProgFexitVfsWrite + ":", "fell back to kprobes", "program " + bpfProgKretprobeVfsWrite + ":"},
+		},
+		{
+			name:     "error no fallback avoids",
+			fails:    []failure{{bpfProgFentryDoUnlinkat, errTestPermission}},
+			attempts: 1,
+			wantErr:  []string{"program " + bpfProgFentryDoUnlinkat + ":", errTestPermission.Error()},
+		},
 	}
-	for _, name := range rest {
-		assert.Contains(t, spec.Programs, name)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := testLoader(t)
+			var attempts [][]string
+			l.newColl = func(spec *ebpf.CollectionSpec, _ ebpf.CollectionOptions) (*ebpf.Collection, error) {
+				attempts = append(attempts, slices.Sorted(maps.Keys(spec.Programs)))
+				for _, f := range tc.fails {
+					if _, ok := spec.Programs[f.prog]; ok {
+						return nil, loadErr(f.prog, f.cause)
+					}
+				}
+				return &ebpf.Collection{}, nil
+			}
+
+			_, spec, err := l.loadColl(nil)
+			require.Len(t, attempts, tc.attempts)
+
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				for _, want := range tc.wantErr {
+					assert.ErrorContains(t, err, want)
+				}
+				assert.ErrorIs(t, err, tc.fails[len(tc.fails)-1].cause)
+				assert.ErrorIs(t, err, tc.fails[0].cause, "the first failure must not be lost")
+				return
+			}
+			require.NoError(t, err)
+
+			last := attempts[len(attempts)-1]
+			assert.ElementsMatch(t, last, slices.Collect(maps.Keys(spec.Programs)), "the returned spec is the one loaded")
+			assert.Equal(t, tc.tracing, tracing(last), "fentry/fexit programs loaded")
+			assert.Equal(t, tc.disabled, l.DisabledEvents())
+			for _, ev := range tc.disabled {
+				for name, rawEv := range rawTpEvents {
+					if rawEv == ev {
+						assert.NotContains(t, last, name)
+					}
+				}
+			}
+			if len(tc.fails) == 0 {
+				assert.NoError(t, l.Degraded())
+			} else {
+				// Every failure that led to a fallback, and what it cost.
+				for _, f := range tc.fails {
+					assert.ErrorContains(t, l.Degraded(), "program "+f.prog+":")
+				}
+			}
+		})
+	}
+}
+
+// TestNewLoaderLoadErrors pins the cilium/ebpf error formats the load
+// fallback relies on, by loading programs that fail on the running kernel.
+// It needs root; its name keeps it under the NewLoader skip pattern in CI.
+func TestNewLoaderLoadErrors(t *testing.T) {
+	ret0 := asm.Instructions{asm.Mov.Imm(asm.R0, 0), asm.Return()}
+	cases := []struct {
+		name  string
+		prog  *ebpf.ProgramSpec
+		match func(error) bool
+	}{
+		{
+			// The instructions cilium/ebpf puts in place of a CO-RE
+			// relocation it can't resolve, which the verifier rejects.
+			name: "poisoned_call",
+			prog: &ebpf.ProgramSpec{
+				Type:         ebpf.SocketFilter,
+				License:      "GPL",
+				Instructions: append(asm.Instructions{asm.BuiltinFunc(btf.COREBadRelocationSentinel).Call()}, ret0...),
+			},
+			match: isBadRelocation,
+		},
+		{
+			name: "poisoned_load",
+			prog: &ebpf.ProgramSpec{
+				Type:         ebpf.SocketFilter,
+				License:      "GPL",
+				Instructions: append(asm.Instructions{asm.LoadImm(asm.R10, btf.COREBadRelocationSentinel, asm.DWord)}, ret0...),
+			},
+			match: isBadRelocation,
+		},
+		{
+			// An fentry target missing from kernel BTF.
+			name: "no_target",
+			prog: &ebpf.ProgramSpec{
+				Type:         ebpf.Tracing,
+				AttachType:   ebpf.AttachTraceFEntry,
+				AttachTo:     "ebpfevents_test_no_such_function",
+				License:      "GPL",
+				Instructions: ret0,
+			},
+			match: func(err error) bool { return errors.Is(err, ebpf.ErrNotSupported) },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := &ebpf.CollectionSpec{Programs: map[string]*ebpf.ProgramSpec{tc.name: tc.prog}}
+			coll, err := ebpf.NewCollection(spec)
+			if err == nil {
+				coll.Close()
+			}
+			require.Error(t, err)
+			assert.True(t, tc.match(err), "the fallback doesn't recognise: %v", err)
+			name, ok := failedProg(spec, err)
+			assert.True(t, ok, "no program named in: %v", err)
+			assert.Equal(t, tc.name, name)
+		})
 	}
 }
 
