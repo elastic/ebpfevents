@@ -170,7 +170,7 @@ func TestPruneUnusedProgs(t *testing.T) {
 
 			for _, fn := range dual {
 				want := "kprobe"
-				if tc.hasBpfTramp && !(btfGuardedFuncs[fn] && missing[fn]) {
+				if tc.hasBpfTramp && (!btfGuardedFuncs[fn] || !missing[fn]) {
 					want = "tracing"
 				}
 
