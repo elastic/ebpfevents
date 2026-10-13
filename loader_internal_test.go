@@ -21,7 +21,8 @@ package ebpfevents
 
 import (
 	"bytes"
-	"reflect"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -92,40 +93,62 @@ func splitProgName(name string) (family, fn string, ok bool) {
 	return "", "", false
 }
 
-// Functions whose tracing variant is chosen only if the function exists in
-// kernel BTF. The rest switch on trampoline support alone. Keep in sync with
-// pruneUnusedProgs and attachBpfProgs.
-var btfGuardedFuncs = map[string]bool{
-	"do_renameat2":   true,
-	"tcp_v6_connect": true,
-	"tty_write":      true,
-	"vfs_writev":     true,
+// objectDualFuncs returns, for every function the object traces with both a
+// tracing and a kprobe variant, its programs by variant family. Derived from
+// the object, so a probe added or renamed upstream (as ec1ba650 renamed
+// taskstats_exit to disassociate_ctty) is covered without editing the tests.
+func objectDualFuncs(t *testing.T) map[string]map[string][]string {
+	t.Helper()
+
+	spec, err := loadBpf()
+	require.NoError(t, err)
+
+	byFunc := map[string]map[string][]string{}
+	for name := range spec.Programs {
+		if fam, fn, ok := splitProgName(name); ok {
+			if byFunc[fn] == nil {
+				byFunc[fn] = map[string][]string{}
+			}
+			byFunc[fn][fam] = append(byFunc[fn][fam], name)
+		}
+	}
+	for fn, fams := range byFunc {
+		if len(fams["tracing"]) == 0 || len(fams["kprobe"]) == 0 {
+			delete(byFunc, fn)
+		}
+	}
+	return byFunc
+}
+
+// TestDualFuncs checks dualFuncs against the object: every dual function is
+// listed, with all of its programs in the right set. A function missing from
+// dualFuncs would have both variants loaded and neither attached.
+func TestDualFuncs(t *testing.T) {
+	want := objectDualFuncs(t)
+	require.NotEmpty(t, want)
+
+	got := map[string]map[string][]string{}
+	for _, df := range dualFuncs {
+		require.NotContains(t, got, df.fn, "%s is listed twice", df.fn)
+		got[df.fn] = map[string][]string{"tracing": df.tracing, "kprobe": df.kprobes}
+	}
+	for fn := range want {
+		require.Contains(t, got, fn, "%s has both variants in the object but no dualFuncs entry", fn)
+		for _, fam := range []string{"tracing", "kprobe"} {
+			assert.ElementsMatch(t, want[fn][fam], got[fn][fam], "%s %s programs", fn, fam)
+		}
+	}
+	for fn := range got {
+		assert.Contains(t, want, fn, "stale dualFuncs entry")
+	}
 }
 
 func TestPruneUnusedProgs(t *testing.T) {
-	base, err := loadBpf()
-	require.NoError(t, err)
-
-	// Every function the object traces with both a tracing and a kprobe
-	// variant. Derived from the object, so a probe added or renamed upstream
-	// (as ec1ba650 renamed taskstats_exit to disassociate_ctty) is covered
-	// without editing this test.
-	families := map[string]map[string]bool{}
-	for name := range base.Programs {
-		if fam, fn, ok := splitProgName(name); ok {
-			if families[fn] == nil {
-				families[fn] = map[string]bool{}
-			}
-			families[fn][fam] = true
-		}
-	}
+	byFunc := objectDualFuncs(t)
 	var dual []string
-	for fn, fams := range families {
-		if fams["tracing"] && fams["kprobe"] {
-			dual = append(dual, fn)
-		}
+	for fn := range byFunc {
+		dual = append(dual, fn)
 	}
-	require.NotEmpty(t, dual)
 
 	// A kernel BTF with every dual function except those in missing.
 	kernelWithout := func(missing ...string) *btf.Spec {
@@ -152,8 +175,10 @@ func TestPruneUnusedProgs(t *testing.T) {
 		// The kernel from beats#46719's dev box: trampolines, but
 		// do_renameat2 absent from BTF.
 		{name: "trampolines, do_renameat2 missing", hasBpfTramp: true, missing: []string{"do_renameat2"}},
-		{name: "trampolines, every guarded function missing", hasBpfTramp: true,
-			missing: []string{"do_renameat2", "tcp_v6_connect", "tty_write", "vfs_writev"}},
+		// static in fs/open.c, so pahole may leave them out.
+		{name: "trampolines, chmod_common and chown_common missing", hasBpfTramp: true,
+			missing: []string{"chmod_common", "chown_common"}},
+		{name: "trampolines, every function missing", hasBpfTramp: true, missing: dual},
 	}
 
 	for _, tc := range cases {
@@ -168,11 +193,13 @@ func TestPruneUnusedProgs(t *testing.T) {
 			l := &Loader{hasBpfTramp: tc.hasBpfTramp, kbtf: kernelWithout(tc.missing...)}
 			l.pruneUnusedProgs(spec)
 
+			wantPicked := slices.Clone(fixedProgs)
 			for _, fn := range dual {
 				want := "kprobe"
-				if tc.hasBpfTramp && (!btfGuardedFuncs[fn] || !missing[fn]) {
+				if tc.hasBpfTramp && !missing[fn] {
 					want = "tracing"
 				}
+				wantPicked = append(wantPicked, byFunc[fn][want]...)
 
 				got := map[string]bool{}
 				for name := range spec.Programs {
@@ -184,22 +211,15 @@ func TestPruneUnusedProgs(t *testing.T) {
 					"%s: exactly the %s variants must survive the prune", fn, want)
 			}
 
-			// Programs that are not part of a tracing/kprobe pair are not
-			// pruneUnusedProgs' business.
-			for name := range base.Programs {
-				if _, fn, ok := splitProgName(name); ok && families[fn]["tracing"] && families[fn]["kprobe"] {
-					continue
-				}
-				assert.Contains(t, spec.Programs, name, "%s must not be pruned", name)
-			}
+			// What is left in the spec is what gets loaded and attached.
+			assert.ElementsMatch(t, wantPicked, slices.Collect(maps.Keys(spec.Programs)))
 		})
 	}
 }
 
-// Programs the object contains but attachBpfProgs never attaches, so
-// populateObjs deliberately leaves their fields nil. They are still loaded.
-// If one gets wired up, it needs a case in populateObjs and must leave this
-// list, which the test enforces.
+// Programs the object contains but the loader never attaches, so
+// pruneUnusedProgs drops them. If one gets wired up, it must leave this list,
+// which TestProgramsAccountedFor enforces.
 var unattachedProgs = map[string]bool{
 	"kprobe__ptrace_attach": true,
 	"module_load":           true,
@@ -207,57 +227,39 @@ var unattachedProgs = map[string]bool{
 	"tracepoint_syscalls_sys_enter_shmget":       true,
 }
 
-func TestPopulateObjs(t *testing.T) {
+// TestProgramsAccountedFor checks that every program in the object is either
+// attached (dualFuncs, fixedProgs) or deliberately not (unattachedProgs). A
+// program added upstream fails it until someone decides which, rather than
+// being dropped by pruneUnusedProgs unnoticed.
+func TestProgramsAccountedFor(t *testing.T) {
 	spec, err := loadBpf()
 	require.NoError(t, err)
 
-	// Placeholders: populateObjs only copies pointers, nothing is loaded.
-	coll := &ebpf.Collection{
-		Programs: map[string]*ebpf.Program{},
-		Maps:     map[string]*ebpf.Map{},
+	known := map[string]string{}
+	add := func(name, where string) {
+		if prev, ok := known[name]; ok {
+			t.Errorf("%s is in both %s and %s", name, prev, where)
+		}
+		known[name] = where
 	}
-	for name := range spec.Programs {
-		coll.Programs[name] = new(ebpf.Program)
+	for _, df := range dualFuncs {
+		for _, name := range slices.Concat(df.tracing, df.kprobes) {
+			add(name, "dualFuncs")
+		}
+	}
+	for _, name := range fixedProgs {
+		add(name, "fixedProgs")
 	}
 	for name := range unattachedProgs {
-		require.Contains(t, spec.Programs, name, "stale entry in unattachedProgs")
-	}
-	for name := range spec.Maps {
-		coll.Maps[name] = new(ebpf.Map)
+		add(name, "unattachedProgs")
 	}
 
-	l := &Loader{coll: coll}
-	l.populateObjs()
-
-	// Every program and map field of bpfObjects must point at the collection
-	// entry its ebpf tag names. A missing case leaves the field nil, and the
-	// attach code would then dereference it.
-	check := func(objs any, lookup func(string) any) {
-		v := reflect.ValueOf(objs).Elem()
-		for i := 0; i < v.NumField(); i++ {
-			tag := v.Type().Field(i).Tag.Get("ebpf")
-			field := v.Type().Field(i).Name
-			want := lookup(tag)
-			require.NotNil(t, want, "%s (%s) has no counterpart in the object", field, tag)
-			if unattachedProgs[tag] {
-				assert.True(t, v.Field(i).IsNil(), "%s is populated: remove %q from unattachedProgs", field, tag)
-				continue
-			}
-			assert.Same(t, want, v.Field(i).Interface(), "%s is not populated from %q", field, tag)
-		}
+	for name := range spec.Programs {
+		assert.Contains(t, known, name, "%s is neither attached nor listed in unattachedProgs", name)
 	}
-	check(&l.objs.bpfPrograms, func(name string) any {
-		if p, ok := coll.Programs[name]; ok {
-			return p
-		}
-		return nil
-	})
-	check(&l.objs.bpfMaps, func(name string) any {
-		if m, ok := coll.Maps[name]; ok {
-			return m
-		}
-		return nil
-	})
+	for name, where := range known {
+		assert.Contains(t, spec.Programs, name, "stale entry in %s", where)
+	}
 }
 
 func TestPruneRawTpProgs(t *testing.T) {

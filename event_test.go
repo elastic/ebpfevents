@@ -34,6 +34,24 @@ import (
 	"github.com/elastic/ebpfevents/pkg/varlen"
 )
 
+// writeTaskComm writes comm as the probes do: a TaskCommLen buffer, padded
+// with NULs.
+func writeTaskComm(t *testing.T, w *bufio.Writer, comm string) {
+	t.Helper()
+
+	var buf [ebpfevents.TaskCommLen]byte
+	assert.LessOrEqual(t, len(comm), ebpfevents.TaskCommLen-1, "comm %q", comm)
+	copy(buf[:], comm)
+	_, err := w.Write(buf[:])
+	assert.Nil(t, err)
+}
+
+// fitTaskComm cuts a faker string to what a task comm holds, at most
+// TaskCommLen-1 bytes before the terminating NUL.
+func fitTaskComm(s string) string {
+	return s[:min(len(s), ebpfevents.TaskCommLen-1)]
+}
+
 func writeProcessFork(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessFork) {
 	t.Helper()
 
@@ -41,9 +59,7 @@ func writeProcessFork(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessFork) 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.ChildPids))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.CTTY))
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.NS))
 
 	testutils.WriteVarlenFields(t, w, varlen.Map{
@@ -59,7 +75,7 @@ func TestProcessFork(t *testing.T) {
 
 	var expectedEvent ebpfevents.ProcessFork
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	writeProcessFork(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessFork
@@ -73,9 +89,7 @@ func writeProcessExec(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessExec) 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.CTTY))
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.NS))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.InodeNlink))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Flags))
@@ -96,7 +110,7 @@ func TestProcessExec(t *testing.T) {
 
 	var expectedEvent ebpfevents.ProcessExec
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	writeProcessExec(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessExec
@@ -110,9 +124,7 @@ func writeProcessExit(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessExit) 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.CTTY))
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.NS))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.ExitCode))
 	testutils.WriteVarlenFields(t, w, varlen.Map{
@@ -128,7 +140,7 @@ func TestProcessExit(t *testing.T) {
 
 	var expectedEvent ebpfevents.ProcessExit
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	writeProcessExit(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessExit
@@ -214,9 +226,7 @@ func writeProcessTTYWrite(t *testing.T, w *bufio.Writer, ev ebpfevents.ProcessTT
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Truncated))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.CTTY))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.TTY))
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.TTYOutput: ev.Output,
 	})
@@ -230,7 +240,7 @@ func TestProcessTTYWrite(t *testing.T) {
 
 	var expectedEvent ebpfevents.ProcessTTYWrite
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	writeProcessTTYWrite(t, w, expectedEvent)
 
 	var newEvent ebpfevents.ProcessTTYWrite
@@ -261,9 +271,7 @@ func writeFileCreate(t *testing.T, w *bufio.Writer, ev ebpfevents.FileCreate) {
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	writeFileInfo(t, w, ev.Finfo)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.Path:              ev.Path,
 		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
@@ -279,7 +287,7 @@ func TestFileCreate(t *testing.T) {
 
 	var expectedEvent ebpfevents.FileCreate
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
 	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
 	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
@@ -297,9 +305,7 @@ func writeFileRename(t *testing.T, w *bufio.Writer, ev ebpfevents.FileRename) {
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	writeFileInfo(t, w, ev.Finfo)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.OldPath:           ev.OldPath,
 		varlen.NewPath:           ev.NewPath,
@@ -316,7 +322,7 @@ func TestFileRename(t *testing.T) {
 
 	var expectedEvent ebpfevents.FileRename
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
 	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
 	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
@@ -334,9 +340,7 @@ func writeFileDelete(t *testing.T, w *bufio.Writer, ev ebpfevents.FileDelete) {
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Creds))
 	writeFileInfo(t, w, ev.Finfo)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.Path:              ev.Path,
 		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
@@ -352,7 +356,7 @@ func TestFileDelete(t *testing.T) {
 
 	var expectedEvent ebpfevents.FileDelete
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
 	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
 	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
@@ -371,9 +375,7 @@ func writeFileModify(t *testing.T, w *bufio.Writer, ev ebpfevents.FileModify) {
 	writeFileInfo(t, w, ev.Finfo)
 	assert.Nil(t, binary.Write(w, endian.Native, ev.ChangeType))
 	assert.Nil(t, binary.Write(w, endian.Native, ev.MountNs))
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 	testutils.WriteVarlenFields(t, w, varlen.Map{
 		varlen.Path:              ev.Path,
 		varlen.SymlinkTargetPath: ev.SymlinkTargetPath,
@@ -389,7 +391,7 @@ func TestFileModify(t *testing.T) {
 
 	var expectedEvent ebpfevents.FileModify
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	expectedEvent.Finfo.Atime = time.Unix(0, int64(1))
 	expectedEvent.Finfo.Mtime = time.Unix(0, int64(2))
 	expectedEvent.Finfo.Ctime = time.Unix(0, int64(3))
@@ -426,9 +428,7 @@ func writeNetEvent(t *testing.T, w *bufio.Writer, ev ebpfevents.NetEvent) {
 
 	assert.Nil(t, binary.Write(w, endian.Native, ev.Pids))
 	writeNetInfo(t, w, ev.Net)
-	_, err := w.WriteString(ev.Comm)
-	assert.Nil(t, err)
-	assert.Nil(t, w.WriteByte(0))
+	writeTaskComm(t, w, ev.Comm)
 
 	assert.Nil(t, w.Flush())
 }
@@ -439,7 +439,7 @@ func TestNetEvent(t *testing.T) {
 
 	var expectedEvent ebpfevents.NetEvent
 	assert.Nil(t, faker.FakeData(&expectedEvent))
-	expectedEvent.Comm = expectedEvent.Comm[:ebpfevents.TaskCommLen-1]
+	expectedEvent.Comm = fitTaskComm(expectedEvent.Comm)
 	switch expectedEvent.Net.Family {
 	case ebpfevents.AFInet:
 		expectedEvent.Net.SourceAddress = netip.MustParseAddr("1.2.3.4")

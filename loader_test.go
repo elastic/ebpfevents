@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -117,9 +118,20 @@ func TestNewLoader(t *testing.T) {
 		}
 		// The probe takes the path from the task's pids css. The pids
 		// controller has to be enabled at every level, or the path stops
-		// at an ancestor.
-		if err := os.WriteFile(filepath.Join(root, "cgroup.subtree_control"), []byte("+pids"), 0); err != nil {
-			t.Skipf("pids cgroup controller not available: %v", err)
+		// at an ancestor. The root is the host's, so enable it there only
+		// if it isn't already, and disable it again afterwards.
+		rootCtl := filepath.Join(root, "cgroup.subtree_control")
+		ctl, err := os.ReadFile(rootCtl)
+		require.NoError(t, err)
+		if !slices.Contains(strings.Fields(string(ctl)), "pids") {
+			if err := os.WriteFile(rootCtl, []byte("+pids"), 0); err != nil {
+				t.Skipf("pids cgroup controller not available: %v", err)
+			}
+			// Registered before the cgroups below are created, so it runs
+			// after they are removed.
+			t.Cleanup(func() {
+				assert.NoError(t, os.WriteFile(rootCtl, []byte("-pids"), 0), "restore %s", rootCtl)
+			})
 		}
 
 		// Nested, so that building the path walks more than one kernfs_node
