@@ -22,9 +22,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/netip"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/elastic/ebpfevents/pkg/endian"
@@ -242,11 +242,13 @@ func (e *ProcessExec) Unmarshal(r *bytes.Reader) error {
 }
 
 type ProcessExit struct {
-	Pids       PidInfo  `json:"pids"`
-	Creds      CredInfo `json:"creds"`
-	CTTY       TTYDev   `json:"ctty"`
-	ExitCode   int32    `json:"exit_code"`
-	CgroupPath string   `json:"cgroup_path"`
+	Pids       PidInfo       `json:"pids"`
+	Creds      CredInfo      `json:"creds"`
+	CTTY       TTYDev        `json:"ctty"`
+	Comm       string        `json:"comm"`
+	NS         NamespaceInfo `json:"ns"`
+	ExitCode   int32         `json:"exit_code"`
+	CgroupPath string        `json:"cgroup_path"`
 }
 
 func (e *ProcessExit) Unmarshal(r *bytes.Reader) error {
@@ -258,6 +260,14 @@ func (e *ProcessExit) Unmarshal(r *bytes.Reader) error {
 	}
 	if err := binary.Read(r, endian.Native, &e.CTTY); err != nil {
 		return fmt.Errorf("read ctty: %v", err)
+	}
+	comm, err := readTaskComm(r)
+	if err != nil {
+		return err
+	}
+	e.Comm = comm
+	if err := binary.Read(r, endian.Native, &e.NS); err != nil {
+		return fmt.Errorf("read ns: %v", err)
 	}
 	if err := binary.Read(r, endian.Native, &e.ExitCode); err != nil {
 		return fmt.Errorf("read exit code: %v", err)
@@ -776,22 +786,17 @@ func readBody(r *bytes.Reader, e EventUnmarshaler, ev *Event) error {
 }
 
 func readTaskComm(r *bytes.Reader) (string, error) {
-	var s strings.Builder
-
-	for i := 0; i < TaskCommLen; i++ {
-		c, err := r.ReadByte()
-		if err != nil {
-			return "", fmt.Errorf("read comm: %v", err)
-		}
-		if c == 0 {
-			continue
-		}
-		if err := s.WriteByte(c); err != nil {
-			return "", fmt.Errorf("write comm: %v", err)
-		}
+	// comm is a fixed TASK_COMM_LEN buffer. The name ends at the first NUL;
+	// the bytes after it are not guaranteed to be zero (the event buffer is
+	// reused), so they must be consumed but not decoded.
+	var buf [TaskCommLen]byte
+	if _, err := io.ReadFull(r, buf[:]); err != nil {
+		return "", fmt.Errorf("read comm: %v", err)
 	}
-
-	return s.String(), nil
+	if i := bytes.IndexByte(buf[:], 0); i >= 0 {
+		return string(buf[:i]), nil
+	}
+	return string(buf[:]), nil
 }
 
 func readNetInfo(r *bytes.Reader) (NetInfo, error) {
@@ -804,31 +809,24 @@ func readNetInfo(r *bytes.Reader) (NetInfo, error) {
 		return ni, fmt.Errorf("read family: %v", err)
 	}
 
+	// struct ebpf_net_info holds each address in a 16-byte union
+	// (saddr[4] / saddr6[16]), so both are 16 bytes whatever the family. An
+	// IPv4 address is the first 4 bytes.
+	var saddr, daddr [16]byte
+	if err := binary.Read(r, endian.Native, &saddr); err != nil {
+		return ni, fmt.Errorf("read saddr: %v", err)
+	}
+	if err := binary.Read(r, endian.Native, &daddr); err != nil {
+		return ni, fmt.Errorf("read daddr: %v", err)
+	}
+
 	switch ni.Family {
 	case AFInet:
-		var tmp [4]byte
-
-		if err := binary.Read(r, endian.Native, &tmp); err != nil {
-			return ni, fmt.Errorf("read saddr: %v", err)
-		}
-		ni.SourceAddress = netip.AddrFrom4(tmp)
-
-		if err := binary.Read(r, endian.Native, &tmp); err != nil {
-			return ni, fmt.Errorf("read daddr: %v", err)
-		}
-		ni.DestinationAddress = netip.AddrFrom4(tmp)
+		ni.SourceAddress = netip.AddrFrom4([4]byte(saddr[:4]))
+		ni.DestinationAddress = netip.AddrFrom4([4]byte(daddr[:4]))
 	case AFInet6:
-		var tmp [16]byte
-
-		if err := binary.Read(r, endian.Native, &tmp); err != nil {
-			return ni, fmt.Errorf("read saddr6: %v", err)
-		}
-		ni.SourceAddress = netip.AddrFrom16(tmp)
-
-		if err := binary.Read(r, endian.Native, &tmp); err != nil {
-			return ni, fmt.Errorf("read daddr6: %v", err)
-		}
-		ni.DestinationAddress = netip.AddrFrom16(tmp)
+		ni.SourceAddress = netip.AddrFrom16(saddr)
+		ni.DestinationAddress = netip.AddrFrom16(daddr)
 	}
 
 	if err := binary.Read(r, endian.Native, &ni.SourcePort); err != nil {
