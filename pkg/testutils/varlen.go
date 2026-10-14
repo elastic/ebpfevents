@@ -44,9 +44,11 @@ func WriteVarlenFields(t *testing.T, w *bufio.Writer, m varlen.Map) {
 		fieldSizes[k] = 0
 		switch k {
 		case varlen.Cwd, varlen.Filename, varlen.CgroupPath,
-			varlen.Path, varlen.OldPath, varlen.NewPath, varlen.TTYOutput,
+			varlen.Path, varlen.OldPath, varlen.NewPath,
 			varlen.SymlinkTargetPath:
 			fieldSizes[k] += uint32(len(v.(string))) + 1 // null terminator
+		case varlen.TTYOutput:
+			fieldSizes[k] += uint32(len(v.(string))) // raw bytes, no null terminator
 		case varlen.Argv:
 			for _, str := range v.([]string) {
 				fieldSizes[k] += uint32(len(str)) + 1 // null terminator
@@ -75,11 +77,14 @@ func WriteVarlenFields(t *testing.T, w *bufio.Writer, m varlen.Map) {
 
 		switch k {
 		case varlen.Cwd, varlen.Filename, varlen.CgroupPath,
-			varlen.Path, varlen.OldPath, varlen.NewPath, varlen.TTYOutput,
+			varlen.Path, varlen.OldPath, varlen.NewPath,
 			varlen.SymlinkTargetPath:
 			_, err := w.WriteString(v.(string))
 			assert.Nil(t, err)
 			assert.Nil(t, w.WriteByte(0))
+		case varlen.TTYOutput:
+			_, err := w.WriteString(v.(string))
+			assert.Nil(t, err)
 		case varlen.Argv:
 			for _, str := range v.([]string) {
 				_, err := w.WriteString(str)
