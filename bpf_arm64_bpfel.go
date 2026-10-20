@@ -47,6 +47,8 @@ const (
 	bpfProgFentryDisassociateCtty                = "fentry__disassociate_ctty"
 	bpfProgFentryDoRenameat2                     = "fentry__do_renameat2"
 	bpfProgFentryDoUnlinkat                      = "fentry__do_unlinkat"
+	bpfProgFentryFilenameRenameat2               = "fentry__filename_renameat2"
+	bpfProgFentryFilenameUnlinkat                = "fentry__filename_unlinkat"
 	bpfProgFentryMntWantWrite                    = "fentry__mnt_want_write"
 	bpfProgFentryTcpClose                        = "fentry__tcp_close"
 	bpfProgFentryTtyWrite                        = "fentry__tty_write"
@@ -54,6 +56,7 @@ const (
 	bpfProgFentryVfsUnlink                       = "fentry__vfs_unlink"
 	bpfProgFexitChmodCommon                      = "fexit__chmod_common"
 	bpfProgFexitChownCommon                      = "fexit__chown_common"
+	bpfProgFexitDoFileOpen                       = "fexit__do_file_open"
 	bpfProgFexitDoFilpOpen                       = "fexit__do_filp_open"
 	bpfProgFexitDoTruncate                       = "fexit__do_truncate"
 	bpfProgFexitInetCskAccept                    = "fexit__inet_csk_accept"
@@ -70,6 +73,8 @@ const (
 	bpfProgKprobeDoRenameat2                     = "kprobe__do_renameat2"
 	bpfProgKprobeDoTruncate                      = "kprobe__do_truncate"
 	bpfProgKprobeDoUnlinkat                      = "kprobe__do_unlinkat"
+	bpfProgKprobeFilenameRenameat2               = "kprobe__filename_renameat2"
+	bpfProgKprobeFilenameUnlinkat                = "kprobe__filename_unlinkat"
 	bpfProgKprobeMntWantWrite                    = "kprobe__mnt_want_write"
 	bpfProgKprobePtraceAttach                    = "kprobe__ptrace_attach"
 	bpfProgKprobeTcpClose                        = "kprobe__tcp_close"
@@ -82,6 +87,7 @@ const (
 	bpfProgKprobeVfsWritev                       = "kprobe__vfs_writev"
 	bpfProgKretprobeChmodCommon                  = "kretprobe__chmod_common"
 	bpfProgKretprobeChownCommon                  = "kretprobe__chown_common"
+	bpfProgKretprobeDoFileOpen                   = "kretprobe__do_file_open"
 	bpfProgKretprobeDoFilpOpen                   = "kretprobe__do_filp_open"
 	bpfProgKretprobeDoTruncate                   = "kretprobe__do_truncate"
 	bpfProgKretprobeInetCskAccept                = "kretprobe__inet_csk_accept"
@@ -156,6 +162,8 @@ type bpfProgramSpecs struct {
 	FentryDisassociateCtty                *ebpf.ProgramSpec `ebpf:"fentry__disassociate_ctty"`
 	FentryDoRenameat2                     *ebpf.ProgramSpec `ebpf:"fentry__do_renameat2"`
 	FentryDoUnlinkat                      *ebpf.ProgramSpec `ebpf:"fentry__do_unlinkat"`
+	FentryFilenameRenameat2               *ebpf.ProgramSpec `ebpf:"fentry__filename_renameat2"`
+	FentryFilenameUnlinkat                *ebpf.ProgramSpec `ebpf:"fentry__filename_unlinkat"`
 	FentryMntWantWrite                    *ebpf.ProgramSpec `ebpf:"fentry__mnt_want_write"`
 	FentryTcpClose                        *ebpf.ProgramSpec `ebpf:"fentry__tcp_close"`
 	FentryTtyWrite                        *ebpf.ProgramSpec `ebpf:"fentry__tty_write"`
@@ -163,6 +171,7 @@ type bpfProgramSpecs struct {
 	FentryVfsUnlink                       *ebpf.ProgramSpec `ebpf:"fentry__vfs_unlink"`
 	FexitChmodCommon                      *ebpf.ProgramSpec `ebpf:"fexit__chmod_common"`
 	FexitChownCommon                      *ebpf.ProgramSpec `ebpf:"fexit__chown_common"`
+	FexitDoFileOpen                       *ebpf.ProgramSpec `ebpf:"fexit__do_file_open"`
 	FexitDoFilpOpen                       *ebpf.ProgramSpec `ebpf:"fexit__do_filp_open"`
 	FexitDoTruncate                       *ebpf.ProgramSpec `ebpf:"fexit__do_truncate"`
 	FexitInetCskAccept                    *ebpf.ProgramSpec `ebpf:"fexit__inet_csk_accept"`
@@ -179,6 +188,8 @@ type bpfProgramSpecs struct {
 	KprobeDoRenameat2                     *ebpf.ProgramSpec `ebpf:"kprobe__do_renameat2"`
 	KprobeDoTruncate                      *ebpf.ProgramSpec `ebpf:"kprobe__do_truncate"`
 	KprobeDoUnlinkat                      *ebpf.ProgramSpec `ebpf:"kprobe__do_unlinkat"`
+	KprobeFilenameRenameat2               *ebpf.ProgramSpec `ebpf:"kprobe__filename_renameat2"`
+	KprobeFilenameUnlinkat                *ebpf.ProgramSpec `ebpf:"kprobe__filename_unlinkat"`
 	KprobeMntWantWrite                    *ebpf.ProgramSpec `ebpf:"kprobe__mnt_want_write"`
 	KprobePtraceAttach                    *ebpf.ProgramSpec `ebpf:"kprobe__ptrace_attach"`
 	KprobeTcpClose                        *ebpf.ProgramSpec `ebpf:"kprobe__tcp_close"`
@@ -191,6 +202,7 @@ type bpfProgramSpecs struct {
 	KprobeVfsWritev                       *ebpf.ProgramSpec `ebpf:"kprobe__vfs_writev"`
 	KretprobeChmodCommon                  *ebpf.ProgramSpec `ebpf:"kretprobe__chmod_common"`
 	KretprobeChownCommon                  *ebpf.ProgramSpec `ebpf:"kretprobe__chown_common"`
+	KretprobeDoFileOpen                   *ebpf.ProgramSpec `ebpf:"kretprobe__do_file_open"`
 	KretprobeDoFilpOpen                   *ebpf.ProgramSpec `ebpf:"kretprobe__do_filp_open"`
 	KretprobeDoTruncate                   *ebpf.ProgramSpec `ebpf:"kretprobe__do_truncate"`
 	KretprobeInetCskAccept                *ebpf.ProgramSpec `ebpf:"kretprobe__inet_csk_accept"`
@@ -313,6 +325,8 @@ type bpfPrograms struct {
 	FentryDisassociateCtty                *ebpf.Program `ebpf:"fentry__disassociate_ctty"`
 	FentryDoRenameat2                     *ebpf.Program `ebpf:"fentry__do_renameat2"`
 	FentryDoUnlinkat                      *ebpf.Program `ebpf:"fentry__do_unlinkat"`
+	FentryFilenameRenameat2               *ebpf.Program `ebpf:"fentry__filename_renameat2"`
+	FentryFilenameUnlinkat                *ebpf.Program `ebpf:"fentry__filename_unlinkat"`
 	FentryMntWantWrite                    *ebpf.Program `ebpf:"fentry__mnt_want_write"`
 	FentryTcpClose                        *ebpf.Program `ebpf:"fentry__tcp_close"`
 	FentryTtyWrite                        *ebpf.Program `ebpf:"fentry__tty_write"`
@@ -320,6 +334,7 @@ type bpfPrograms struct {
 	FentryVfsUnlink                       *ebpf.Program `ebpf:"fentry__vfs_unlink"`
 	FexitChmodCommon                      *ebpf.Program `ebpf:"fexit__chmod_common"`
 	FexitChownCommon                      *ebpf.Program `ebpf:"fexit__chown_common"`
+	FexitDoFileOpen                       *ebpf.Program `ebpf:"fexit__do_file_open"`
 	FexitDoFilpOpen                       *ebpf.Program `ebpf:"fexit__do_filp_open"`
 	FexitDoTruncate                       *ebpf.Program `ebpf:"fexit__do_truncate"`
 	FexitInetCskAccept                    *ebpf.Program `ebpf:"fexit__inet_csk_accept"`
@@ -336,6 +351,8 @@ type bpfPrograms struct {
 	KprobeDoRenameat2                     *ebpf.Program `ebpf:"kprobe__do_renameat2"`
 	KprobeDoTruncate                      *ebpf.Program `ebpf:"kprobe__do_truncate"`
 	KprobeDoUnlinkat                      *ebpf.Program `ebpf:"kprobe__do_unlinkat"`
+	KprobeFilenameRenameat2               *ebpf.Program `ebpf:"kprobe__filename_renameat2"`
+	KprobeFilenameUnlinkat                *ebpf.Program `ebpf:"kprobe__filename_unlinkat"`
 	KprobeMntWantWrite                    *ebpf.Program `ebpf:"kprobe__mnt_want_write"`
 	KprobePtraceAttach                    *ebpf.Program `ebpf:"kprobe__ptrace_attach"`
 	KprobeTcpClose                        *ebpf.Program `ebpf:"kprobe__tcp_close"`
@@ -348,6 +365,7 @@ type bpfPrograms struct {
 	KprobeVfsWritev                       *ebpf.Program `ebpf:"kprobe__vfs_writev"`
 	KretprobeChmodCommon                  *ebpf.Program `ebpf:"kretprobe__chmod_common"`
 	KretprobeChownCommon                  *ebpf.Program `ebpf:"kretprobe__chown_common"`
+	KretprobeDoFileOpen                   *ebpf.Program `ebpf:"kretprobe__do_file_open"`
 	KretprobeDoFilpOpen                   *ebpf.Program `ebpf:"kretprobe__do_filp_open"`
 	KretprobeDoTruncate                   *ebpf.Program `ebpf:"kretprobe__do_truncate"`
 	KretprobeInetCskAccept                *ebpf.Program `ebpf:"kretprobe__inet_csk_accept"`
@@ -371,6 +389,8 @@ func (p *bpfPrograms) Close() error {
 		p.FentryDisassociateCtty,
 		p.FentryDoRenameat2,
 		p.FentryDoUnlinkat,
+		p.FentryFilenameRenameat2,
+		p.FentryFilenameUnlinkat,
 		p.FentryMntWantWrite,
 		p.FentryTcpClose,
 		p.FentryTtyWrite,
@@ -378,6 +398,7 @@ func (p *bpfPrograms) Close() error {
 		p.FentryVfsUnlink,
 		p.FexitChmodCommon,
 		p.FexitChownCommon,
+		p.FexitDoFileOpen,
 		p.FexitDoFilpOpen,
 		p.FexitDoTruncate,
 		p.FexitInetCskAccept,
@@ -394,6 +415,8 @@ func (p *bpfPrograms) Close() error {
 		p.KprobeDoRenameat2,
 		p.KprobeDoTruncate,
 		p.KprobeDoUnlinkat,
+		p.KprobeFilenameRenameat2,
+		p.KprobeFilenameUnlinkat,
 		p.KprobeMntWantWrite,
 		p.KprobePtraceAttach,
 		p.KprobeTcpClose,
@@ -406,6 +429,7 @@ func (p *bpfPrograms) Close() error {
 		p.KprobeVfsWritev,
 		p.KretprobeChmodCommon,
 		p.KretprobeChownCommon,
+		p.KretprobeDoFileOpen,
 		p.KretprobeDoFilpOpen,
 		p.KretprobeDoTruncate,
 		p.KretprobeInetCskAccept,
