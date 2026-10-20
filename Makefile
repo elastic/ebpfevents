@@ -14,6 +14,7 @@ all: generate
 generate:
 	go generate ./event.go
 	BPF_CLANG=$(CLANG) BPF_CFLAGS="$(CFLAGS)" BPF_TARGET=$(BUILD_ARCH) go generate ./gen_$(BUILD_ARCH).go
+	$(MAKE) write-license-headers
 
 build-eventstrace:
 	mkdir -p $(OUT_PATH)

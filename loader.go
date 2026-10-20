@@ -23,8 +23,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"runtime"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -42,9 +45,15 @@ type Loader struct {
 
 	// bpf objects
 	kbtf   *btf.Spec
-	objs   bpfObjects
+	coll   *ebpf.Collection
 	links  []link.Link
 	reader *ringbuf.Reader
+
+	// load fallbacks, see loadColl
+	dropped  []string // tp_btf programs dropped because they failed to load
+	degraded error    // the load failures that led to a fallback
+	// newColl is ebpf.NewCollectionWithOptions, replaced in tests.
+	newColl func(*ebpf.CollectionSpec, ebpf.CollectionOptions) (*ebpf.Collection, error)
 
 	// .rodata constants
 	constants map[string]any
@@ -67,22 +76,32 @@ func NewLoader() (*Loader, error) {
 	l.constants["consumer_pid"] = uint32(os.Getpid())
 
 	if err := kernel.CheckSupported(); err != nil {
-		return nil, fmt.Errorf("check kernel version: %v", err)
+		return nil, fmt.Errorf("check kernel version: %w", err)
 	}
 
-	kbtf, err := btf.LoadKernelSpec()
+	cache := btf.NewCache()
+	kbtf, err := cache.Kernel()
 	if err != nil {
-		return nil, fmt.Errorf("load kernel btf: %v", err)
+		return nil, fmt.Errorf("load kernel btf: %w", err)
 	}
 	l.kbtf = kbtf
 	l.hasBpfTramp = kernel.HasBpfTramp()
 
 	if err := l.fillIndexes(); err != nil {
-		return nil, fmt.Errorf("fill indexes: %v", err)
+		return nil, fmt.Errorf("fill indexes: %w", err)
 	}
-	if err := l.loadBpf(); err != nil {
-		return nil, fmt.Errorf("load bpf: %v", err)
+	if err := l.loadBpf(cache); err != nil {
+		// loadBpf can fail after loading the collection, with the ring buffer
+		// reader open and some programs attached. Release them now rather
+		// than leave the links live in the kernel until finalizers run.
+		_ = l.Close()
+		return nil, fmt.Errorf("load bpf: %w", err)
 	}
+
+	// Kernel BTF is only needed during load. Drop the last reference to
+	// the parsed spec (~20MiB) and collect it promptly.
+	cache = nil
+	runtime.GC()
 
 	return l, nil
 }
@@ -112,78 +131,252 @@ func (l *Loader) rewriteConstants(spec *ebpf.CollectionSpec) error {
 	return nil
 }
 
-func (l *Loader) loadBpf() error {
-	if err := rlimit.RemoveMemlock(); err != nil {
-		return fmt.Errorf("rlimit remove memlock: %v", err)
-	}
+// A dualFunc is a kernel function the object traces twice: with fentry/fexit
+// programs and with kprobe/kretprobe programs. Only one of the two sets is
+// loaded and attached.
+type dualFunc struct {
+	fn      string
+	tracing []string // fentry/fexit programs
+	kprobes []string // kprobe/kretprobe programs
+}
 
+var dualFuncs = []dualFunc{
+	{"chmod_common", []string{bpfProgFexitChmodCommon}, []string{bpfProgKprobeChmodCommon, bpfProgKretprobeChmodCommon}},
+	{"chown_common", []string{bpfProgFexitChownCommon}, []string{bpfProgKprobeChownCommon, bpfProgKretprobeChownCommon}},
+	{"commit_creds", []string{bpfProgFentryCommitCreds}, []string{bpfProgKprobeCommitCreds}},
+	{"disassociate_ctty", []string{bpfProgFentryDisassociateCtty}, []string{bpfProgKprobeDisassociateCtty}},
+	{"do_filp_open", []string{bpfProgFexitDoFilpOpen}, []string{bpfProgKretprobeDoFilpOpen}},
+	{"do_renameat2", []string{bpfProgFentryDoRenameat2}, []string{bpfProgKprobeDoRenameat2}},
+	{"do_truncate", []string{bpfProgFexitDoTruncate}, []string{bpfProgKprobeDoTruncate, bpfProgKretprobeDoTruncate}},
+	{"do_unlinkat", []string{bpfProgFentryDoUnlinkat}, []string{bpfProgKprobeDoUnlinkat}},
+	{"inet_csk_accept", []string{bpfProgFexitInetCskAccept}, []string{bpfProgKretprobeInetCskAccept}},
+	{"mnt_want_write", []string{bpfProgFentryMntWantWrite}, []string{bpfProgKprobeMntWantWrite}},
+	{"tcp_close", []string{bpfProgFentryTcpClose}, []string{bpfProgKprobeTcpClose}},
+	{"tcp_v4_connect", []string{bpfProgFexitTcpV4Connect}, []string{bpfProgKprobeTcpV4Connect, bpfProgKretprobeTcpV4Connect}},
+	{"tcp_v6_connect", []string{bpfProgFexitTcpV6Connect}, []string{bpfProgKprobeTcpV6Connect, bpfProgKretprobeTcpV6Connect}},
+	{"tty_write", []string{bpfProgFentryTtyWrite}, []string{bpfProgKprobeTtyWrite}},
+	{"vfs_rename", []string{bpfProgFentryVfsRename, bpfProgFexitVfsRename}, []string{bpfProgKprobeVfsRename, bpfProgKretprobeVfsRename}},
+	{"vfs_unlink", []string{bpfProgFentryVfsUnlink, bpfProgFexitVfsUnlink}, []string{bpfProgKprobeVfsUnlink, bpfProgKretprobeVfsUnlink}},
+	{"vfs_write", []string{bpfProgFexitVfsWrite}, []string{bpfProgKprobeVfsWrite, bpfProgKretprobeVfsWrite}},
+	{"vfs_writev", []string{bpfProgFexitVfsWritev}, []string{bpfProgKprobeVfsWritev, bpfProgKretprobeVfsWritev}},
+}
+
+// fixedProgs are attached on every kernel.
+var fixedProgs = []string{
+	bpfProgSchedProcessExec,
+	bpfProgSchedProcessFork,
+	bpfProgTracepointSyscallsSysExitSetsid,
+}
+
+// pruneUnusedProgs picks the programs to attach: fixedProgs, less any the
+// load fallback dropped, and, for every dual function, the fentry/fexit
+// programs if the kernel has BPF trampolines and the function is in kernel
+// BTF, or the kprobe/kretprobe programs otherwise. It deletes every other
+// program from spec, so what is left is what attachBpfProgs attaches.
+//
+// An fentry/fexit program whose target is missing from kernel BTF fails to
+// load with ErrNotSupported, which fails the whole collection. pahole drops
+// functions that are inlined or have inconsistent prototypes, as happened to
+// do_renameat2 (beats#46719), so every function is checked.
+//
+// NewCollectionWithOptions loads every program in the spec, so a program that
+// is never attached can only make the load fail. module_load, for one, needs
+// btf_trace_module_load, which kernels built without CONFIG_MODULES lack.
+func (l *Loader) pruneUnusedProgs(spec *ebpf.CollectionSpec) {
+	picked := slices.DeleteFunc(slices.Clone(fixedProgs), func(name string) bool {
+		return slices.Contains(l.dropped, name)
+	})
+	for _, df := range dualFuncs {
+		if l.hasBpfTramp && kernel.FuncExists(l.kbtf, df.fn) {
+			picked = append(picked, df.tracing...)
+		} else {
+			picked = append(picked, df.kprobes...)
+		}
+	}
+	for name := range spec.Programs {
+		if !slices.Contains(picked, name) {
+			delete(spec.Programs, name)
+		}
+	}
+}
+
+func (l *Loader) prepareSpec() (*ebpf.CollectionSpec, error) {
 	spec, err := loadBpf()
 	if err != nil {
-		return fmt.Errorf("load collection: %v", err)
+		return nil, fmt.Errorf("load collection: %w", err)
 	}
-
 	if err := l.rewriteConstants(spec); err != nil {
-		return fmt.Errorf("rewrite constants: %v", err)
+		return nil, fmt.Errorf("rewrite constants: %w", err)
 	}
-	spec.Maps["event_buffer_map"].MaxEntries = uint32(runtime.NumCPU())
+	spec.Maps[bpfMapEventBufferMap].MaxEntries = uint32(runtime.NumCPU())
+	l.pruneUnusedProgs(spec)
+	return spec, nil
+}
 
-	// Try to load all with default logsize
-	var opts ebpf.CollectionOptions
-	opts.Programs.LogSizeStart = 1 << 16
-	opts.Programs.LogLevel = ebpf.LogLevelInstruction
+// cilium/ebpf replaces an instruction whose CO-RE relocation it can't resolve
+// against kernel BTF with a call to, or a load of, btf.COREBadRelocationSentinel,
+// and the verifier rejects the program there. These are the verifier log lines
+// for the two, as cilium/ebpf itself matches them (prog.go).
+var (
+	coreBadCall = fmt.Sprintf("invalid func unknown#%d", btf.COREBadRelocationSentinel)
+	coreBadLoad = fmt.Sprintf("r10 = 0x%x", btf.COREBadRelocationSentinel)
+)
 
-	if err := spec.LoadAndAssign(&l.objs, &opts); err != nil {
-		var ve *ebpf.VerifierError
-
-		if errors.As(err, &ve) {
-			return fmt.Errorf("verifier error: %w", err)
+// isBadRelocation reports whether err is the verifier rejecting a program at
+// an instruction poisoned for a CO-RE relocation that couldn't be resolved.
+// TestNewLoaderLoadErrors checks it against the running kernel.
+func isBadRelocation(err error) bool {
+	var ve *ebpf.VerifierError
+	if !errors.As(err, &ve) {
+		return false
+	}
+	for _, line := range ve.Log {
+		if strings.Contains(line, coreBadCall) || strings.Contains(line, coreBadLoad) {
+			return true
 		}
-
-		return fmt.Errorf("error loading bpf probes: %v", err)
 	}
-	defer func() {
-		btf.FlushKernelSpec()
-		runtime.GC()
-	}()
+	return false
+}
 
-	rd, err := ringbuf.NewReader(l.objs.bpfMaps.Ringbuf)
+// rawTpEvents are the events the tp_btf programs emit. They have no kprobe
+// variant, so if one fails to load, its events are lost.
+var rawTpEvents = map[string]EventType{
+	bpfProgSchedProcessExec: EventTypeProcessExec,
+	bpfProgSchedProcessFork: EventTypeProcessFork,
+}
+
+// failedProg returns the program in spec that err, a NewCollectionWithOptions
+// error, is about. cilium/ebpf prefixes it with "program <name>:", which
+// TestNewLoaderLoadErrors pins.
+func failedProg(spec *ebpf.CollectionSpec, err error) (string, bool) {
+	msg := err.Error()
+	for name := range spec.Programs {
+		if strings.HasPrefix(msg, "program "+name+":") {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// fallBack changes what the next load attempt picks so that it avoids err,
+// the failure to load spec. It returns what it gave up, or false if no other
+// choice of programs avoids err.
+//
+// Only a bad CO-RE relocation or ErrNotSupported (such as an fentry target
+// missing from kernel BTF) depends on the programs chosen, and only in a
+// program that has an alternative:
+//   - fentry/fexit: every dual function switches to its kprobe variant. The
+//     variants share helpers, so one fentry program failing tends to come
+//     with others failing; switching them together costs one retry, not one
+//     per program.
+//   - tp_btf: the program is dropped, and the events only it emits are lost.
+//     DisabledEvents reports them.
+func (l *Loader) fallBack(spec *ebpf.CollectionSpec, err error) (string, bool) {
+	if !isBadRelocation(err) && !errors.Is(err, ebpf.ErrNotSupported) {
+		return "", false
+	}
+	name, ok := failedProg(spec, err)
+	if !ok {
+		return "", false
+	}
+	ps := spec.Programs[name]
+	if ps.Type != ebpf.Tracing {
+		return "", false
+	}
+	switch ps.AttachType {
+	case ebpf.AttachTraceFEntry, ebpf.AttachTraceFExit:
+		if !l.hasBpfTramp {
+			return "", false
+		}
+		l.hasBpfTramp = false
+		return "fell back to kprobes", true
+	case ebpf.AttachTraceRawTp:
+		ev, ok := rawTpEvents[name]
+		if !ok {
+			return "", false
+		}
+		l.dropped = append(l.dropped, name)
+		return fmt.Sprintf("dropped %s, no %s events", name, ev), true
+	}
+	return "", false
+}
+
+// loadColl loads the programs pruneUnusedProgs picks. When a program fails in
+// a way another choice avoids (see fallBack), it falls back and tries again.
+// Each fallback can happen only once, so there are at most three retries.
+func (l *Loader) loadColl(cache *btf.Cache) (*ebpf.Collection, *ebpf.CollectionSpec, error) {
+	newColl := l.newColl
+	if newColl == nil {
+		newColl = ebpf.NewCollectionWithOptions
+	}
+
+	var fallbacks []error
+	for {
+		spec, err := l.prepareSpec()
+		if err != nil {
+			return nil, nil, err
+		}
+		coll, err := newColl(spec, ebpf.CollectionOptions{Cache: cache})
+		if err == nil {
+			l.degraded = errors.Join(fallbacks...)
+			return coll, spec, nil
+		}
+		gaveUp, ok := l.fallBack(spec, err)
+		if !ok {
+			// The failures that led here too: without them, an error in a
+			// kprobe program wouldn't say that kprobes were the fallback.
+			return nil, nil, fmt.Errorf("load bpf collection: %w", errors.Join(append(fallbacks, err)...))
+		}
+		fallbacks = append(fallbacks, fmt.Errorf("%s: %w", gaveUp, err))
+	}
+}
+
+func (l *Loader) loadBpf(cache *btf.Cache) error {
+	// Best-effort: not needed on kernels >= 5.11. On older kernels it
+	// requires CAP_SYS_RESOURCE, which may not be available in containers.
+	// If the default memlock limit is insufficient, loading the collection
+	// will fail with a more specific error.
+	_ = rlimit.RemoveMemlock()
+
+	coll, spec, err := l.loadColl(cache)
 	if err != nil {
-		return fmt.Errorf("error opening ringbuf reader: %v", err)
+		return err
+	}
+	l.coll = coll
+
+	rd, err := ringbuf.NewReader(l.coll.Maps[bpfMapRingbuf])
+	if err != nil {
+		return fmt.Errorf("error opening ringbuf reader: %w", err)
 	}
 	l.reader = rd
 
-	if err := l.attachBpfProgs(); err != nil {
-		return fmt.Errorf("error attaching bpf programs: %v", err)
+	if err := l.attachBpfProgs(spec); err != nil {
+		return fmt.Errorf("error attaching bpf programs: %w", err)
 	}
+
+	// Kernel BTF is only needed up to this point, release it so the
+	// decoded spec (~20MiB) can be garbage collected.
+	l.kbtf = nil
 
 	return nil
 }
 
-func (l *Loader) attachBpfProgs() error {
+func (l *Loader) attachBpfProgs(spec *ebpf.CollectionSpec) error {
 	attachTracing := func(at ebpf.AttachType, prog *ebpf.Program) error {
 		lnk, err := link.AttachTracing(link.TracingOptions{
 			Program:    prog,
 			AttachType: at,
 		})
 		if err != nil {
-			return fmt.Errorf("attach tracing %q: %v", prog.String(), err)
+			return fmt.Errorf("attach tracing %q: %w", prog.String(), err)
 		}
 		l.links = append(l.links, lnk)
 		return nil
 	}
-	attachFentry := func(prog *ebpf.Program) error {
-		return attachTracing(ebpf.AttachTraceFEntry, prog)
-	}
-	attachFexit := func(prog *ebpf.Program) error {
-		return attachTracing(ebpf.AttachTraceFExit, prog)
-	}
-	attachRawTp := func(prog *ebpf.Program) error {
-		return attachTracing(ebpf.AttachTraceRawTp, prog)
-	}
 	attachKprobe := func(sym string, prog *ebpf.Program) error {
 		lnk, err := link.Kprobe(sym, prog, nil)
 		if err != nil {
-			return fmt.Errorf("attach kprobe %q: %v", prog.String(), err)
+			return fmt.Errorf("attach kprobe %q: %w", prog.String(), err)
 		}
 		l.links = append(l.links, lnk)
 		return nil
@@ -191,7 +384,7 @@ func (l *Loader) attachBpfProgs() error {
 	attachKretprobe := func(sym string, prog *ebpf.Program) error {
 		lnk, err := link.Kretprobe(sym, prog, nil)
 		if err != nil {
-			return fmt.Errorf("attach kretprobe %q: %v", prog.String(), err)
+			return fmt.Errorf("attach kretprobe %q: %w", prog.String(), err)
 		}
 		l.links = append(l.links, lnk)
 		return nil
@@ -199,7 +392,7 @@ func (l *Loader) attachBpfProgs() error {
 	attachTracepoint := func(group, name string, prog *ebpf.Program) error {
 		lnk, err := link.Tracepoint(group, name, prog, nil)
 		if err != nil {
-			return fmt.Errorf("attach tracepoint '%s/%s': %v", group, name, err)
+			return fmt.Errorf("attach tracepoint '%s/%s': %w", group, name, err)
 		}
 		l.links = append(l.links, lnk)
 		return nil
@@ -207,81 +400,24 @@ func (l *Loader) attachBpfProgs() error {
 
 	var err error
 
-	// do_renameat2
-	if l.hasBpfTramp && kernel.FuncExists(l.kbtf, "do_renameat2") {
-		err = errors.Join(err, attachFentry(l.objs.FentryDoRenameat2))
-	} else {
-		err = errors.Join(err, attachKprobe("do_renameat2", l.objs.KprobeDoRenameat2))
+	// Every program left in the spec is attached, the way its ELF section
+	// says. Sorted, so that errors come out in a stable order.
+	for _, name := range slices.Sorted(maps.Keys(spec.Programs)) {
+		ps, prog := spec.Programs[name], l.coll.Programs[name]
+		switch {
+		case ps.Type == ebpf.Tracing: // fentry, fexit, tp_btf
+			err = errors.Join(err, attachTracing(ps.AttachType, prog))
+		case ps.Type == ebpf.TracePoint:
+			group, tp, _ := strings.Cut(ps.AttachTo, "/")
+			err = errors.Join(err, attachTracepoint(group, tp, prog))
+		case ps.Type == ebpf.Kprobe && strings.HasPrefix(ps.SectionName, "kretprobe/"):
+			err = errors.Join(err, attachKretprobe(ps.AttachTo, prog))
+		case ps.Type == ebpf.Kprobe:
+			err = errors.Join(err, attachKprobe(ps.AttachTo, prog))
+		default:
+			err = errors.Join(err, fmt.Errorf("attach %s: unsupported program type %s", name, ps.Type))
+		}
 	}
-
-	// tcp_v6_connect
-	if l.hasBpfTramp && kernel.FuncExists(l.kbtf, "tcp_v6_connect") {
-		err = errors.Join(err, attachFexit(l.objs.FexitTcpV6Connect))
-	} else {
-		err = errors.Join(err, attachKprobe("tcp_v6_connect", l.objs.KprobeTcpV6Connect))
-		err = errors.Join(err, attachKretprobe("tcp_v6_connect", l.objs.KretprobeTcpV6Connect))
-	}
-
-	// tty_write
-	if l.hasBpfTramp && kernel.FuncExists(l.kbtf, "tty_write") {
-		err = errors.Join(err, attachFentry(l.objs.FentryTtyWrite))
-	} else {
-		err = errors.Join(err, attachKprobe("tty_write", l.objs.KprobeTtyWrite))
-	}
-
-	// vfs_writev
-	if l.hasBpfTramp && kernel.FuncExists(l.kbtf, "vfs_writev") {
-		err = errors.Join(err, attachFexit(l.objs.FexitVfsWritev))
-	} else {
-		err = errors.Join(err, attachKprobe("vfs_writev", l.objs.KprobeVfsWritev))
-		err = errors.Join(err, attachKretprobe("vfs_writev", l.objs.KretprobeVfsWritev))
-	}
-
-	// generic bpf trampoline
-	if l.hasBpfTramp {
-		err = errors.Join(err, attachFentry(l.objs.FentryDoUnlinkat))
-		err = errors.Join(err, attachFentry(l.objs.FentryMntWantWrite))
-		err = errors.Join(err, attachFentry(l.objs.FentryVfsUnlink))
-		err = errors.Join(err, attachFexit(l.objs.FexitVfsUnlink))
-		err = errors.Join(err, attachFexit(l.objs.FexitDoFilpOpen))
-		err = errors.Join(err, attachFentry(l.objs.FentryVfsRename))
-		err = errors.Join(err, attachFexit(l.objs.FexitVfsRename))
-		err = errors.Join(err, attachFentry(l.objs.FentryTaskstatsExit))
-		err = errors.Join(err, attachFentry(l.objs.FentryCommitCreds))
-		err = errors.Join(err, attachFexit(l.objs.FexitInetCskAccept))
-		err = errors.Join(err, attachFexit(l.objs.FexitTcpV4Connect))
-		err = errors.Join(err, attachFentry(l.objs.FentryTcpClose))
-		err = errors.Join(err, attachFexit(l.objs.FexitChmodCommon))
-		err = errors.Join(err, attachFexit(l.objs.FexitDoTruncate))
-		err = errors.Join(err, attachFexit(l.objs.FexitVfsWrite))
-		err = errors.Join(err, attachFexit(l.objs.FexitChownCommon))
-	} else {
-		err = errors.Join(err, attachKprobe("do_unlinkat", l.objs.KprobeDoUnlinkat))
-		err = errors.Join(err, attachKprobe("mnt_want_write", l.objs.KprobeMntWantWrite))
-		err = errors.Join(err, attachKprobe("vfs_unlink", l.objs.KprobeVfsUnlink))
-		err = errors.Join(err, attachKretprobe("vfs_unlink", l.objs.KretprobeVfsUnlink))
-		err = errors.Join(err, attachKretprobe("do_filp_open", l.objs.KretprobeDoFilpOpen))
-		err = errors.Join(err, attachKprobe("vfs_rename", l.objs.KprobeVfsRename))
-		err = errors.Join(err, attachKretprobe("vfs_rename", l.objs.KretprobeVfsRename))
-		err = errors.Join(err, attachKprobe("taskstats_exit", l.objs.KprobeTaskstatsExit))
-		err = errors.Join(err, attachKprobe("commit_creds", l.objs.KprobeCommitCreds))
-		err = errors.Join(err, attachKretprobe("inet_csk_accept", l.objs.KretprobeInetCskAccept))
-		err = errors.Join(err, attachKprobe("tcp_v4_connect", l.objs.KprobeTcpV4Connect))
-		err = errors.Join(err, attachKretprobe("tcp_v4_connect", l.objs.KretprobeTcpV4Connect))
-		err = errors.Join(err, attachKprobe("tcp_close", l.objs.KprobeTcpClose))
-		err = errors.Join(err, attachKprobe("chmod_common", l.objs.KprobeChmodCommon))
-		err = errors.Join(err, attachKretprobe("chmod_common", l.objs.KretprobeChmodCommon))
-		err = errors.Join(err, attachKprobe("do_truncate", l.objs.KprobeDoTruncate))
-		err = errors.Join(err, attachKretprobe("do_truncate", l.objs.KretprobeDoTruncate))
-		err = errors.Join(err, attachKprobe("vfs_write", l.objs.KprobeVfsWrite))
-		err = errors.Join(err, attachKretprobe("vfs_write", l.objs.KretprobeVfsWrite))
-		err = errors.Join(err, attachKprobe("chown_common", l.objs.KprobeChownCommon))
-		err = errors.Join(err, attachKretprobe("chown_common", l.objs.KretprobeChownCommon))
-	}
-
-	err = errors.Join(err, attachRawTp(l.objs.SchedProcessExec))
-	err = errors.Join(err, attachRawTp(l.objs.SchedProcessFork))
-	err = errors.Join(err, attachTracepoint("syscalls", "sys_exit_setsid", l.objs.TracepointSyscallsSysExitSetsid))
 
 	return err
 }
@@ -319,18 +455,41 @@ func (l *Loader) EventLoop(ctx context.Context, out chan<- Record) {
 	}
 }
 
+// DisabledEvents returns the event types the loader can't produce on this
+// kernel, because the only programs that emit them failed to load. It is
+// empty unless NewLoader had to fall back, and Degraded says why.
+func (l *Loader) DisabledEvents() []EventType {
+	var evs []EventType
+	for _, name := range l.dropped {
+		evs = append(evs, rawTpEvents[name])
+	}
+	return evs
+}
+
+// Degraded returns the load failures NewLoader worked around, each with what
+// it gave up for it, or nil if it loaded what it normally does. Not an error
+// for NewLoader's caller to fail on, but one to log: when it reports dropped
+// programs, events are missing (see DisabledEvents).
+func (l *Loader) Degraded() error {
+	return l.degraded
+}
+
 func (l *Loader) BufferLen() uint32 {
-	return l.objs.bpfMaps.Ringbuf.MaxEntries()
+	return l.coll.Maps[bpfMapRingbuf].MaxEntries()
 }
 
 func (l *Loader) Close() error {
+	var errs []error
 	if l.reader != nil {
-		l.reader.Close()
+		errs = append(errs, l.reader.Close())
 	}
 	for _, lnk := range l.links {
-		lnk.Close()
+		errs = append(errs, lnk.Close())
 	}
-	return nil
+	if l.coll != nil {
+		l.coll.Close()
+	}
+	return errors.Join(errs...)
 }
 
 func (l *Loader) fillArgIndex(funcName, argName string) error {
@@ -338,7 +497,7 @@ func (l *Loader) fillArgIndex(funcName, argName string) error {
 
 	idx, err := kernel.ArgIdxByFunc(l.kbtf, funcName, argName)
 	if err != nil {
-		return fmt.Errorf("fill %s: %v", name, err)
+		return fmt.Errorf("fill %s: %w", name, err)
 	}
 	l.constants[name] = idx
 
@@ -350,7 +509,7 @@ func (l *Loader) fillRetIndex(funcName string) error {
 
 	idx, err := kernel.RetIdxByFunc(l.kbtf, funcName)
 	if err != nil {
-		return fmt.Errorf("fill %s: %v", name, err)
+		return fmt.Errorf("fill %s: %w", name, err)
 	}
 	l.constants[name] = idx
 
@@ -368,7 +527,7 @@ func (l *Loader) fillFieldOffset(structName, fieldName string) error {
 
 	off, err := kernel.FieldOffset(l.kbtf, structName, fieldName)
 	if err != nil {
-		return fmt.Errorf("fill %s: %v", name, err)
+		return fmt.Errorf("fill %s: %w", name, err)
 	}
 	l.constants[name] = off
 
@@ -399,15 +558,10 @@ func (l *Loader) fillIndexes() error {
 	err = errors.Join(err, l.fillArgIndex("do_truncate", "filp"))
 	err = errors.Join(err, l.fillRetIndex("do_truncate"))
 
-	if kernel.FieldExists(l.kbtf, "inode", "__i_atime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_atime"))
-	}
-	if kernel.FieldExists(l.kbtf, "inode", "__i_mtime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_mtime"))
-	}
-	if kernel.FieldExists(l.kbtf, "inode", "__i_ctime") {
-		err = errors.Join(err, l.fillFieldOffset("inode", "__i_ctime"))
-	}
+	// The probes read inode timestamps, kernfs_node.__parent and
+	// tty_driver.type/.subtype through CO-RE flavors (vmlinux_extra.h) and
+	// declare no offset constants for them. Filling a constant the object
+	// doesn't declare fails rewriteConstants.
 
 	return err
 }

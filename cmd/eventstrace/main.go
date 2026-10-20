@@ -22,17 +22,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/elastic/ebpfevents"
+
+	_ "net/http/pprof"
 )
 
 func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	start := time.Now()
 	l, err := ebpfevents.NewLoader()
@@ -49,6 +56,9 @@ func main() {
 		case r := <-records:
 			if r.Error != nil {
 				fmt.Printf("ERROR: %v\n", r.Error)
+				continue
+			}
+			if r.Event.Type == ebpfevents.EventTypeProcessTTYWrite {
 				continue
 			}
 

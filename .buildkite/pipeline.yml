@@ -3,7 +3,7 @@ steps:
     key: "lint"
     command: ".buildkite/lint.sh"
     agents:
-      image: "golangci/golangci-lint:v1.64.8"
+      image: "golangci/golangci-lint:v2.6.2"
 
   - label: ":test_tube: Test"
     key: "test"
