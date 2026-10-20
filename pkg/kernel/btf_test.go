@@ -32,11 +32,20 @@ func TestFieldExists(t *testing.T) {
 	assert.False(t, FieldExists(spec, "tty_struct", "qwerty"))
 }
 
+// filpOpen returns the name of do_filp_open in spec: 7.0 renamed it to
+// do_file_open, with the same arguments.
+func filpOpen(spec *btf.Spec) string {
+	if FuncExists(spec, "do_filp_open") {
+		return "do_filp_open"
+	}
+	return "do_file_open"
+}
+
 func TestFuncExists(t *testing.T) {
 	spec, err := btf.LoadKernelSpec()
 	assert.Nil(t, err)
 
-	assert.True(t, FuncExists(spec, "do_filp_open"))
+	assert.True(t, FuncExists(spec, "do_filp_open") || FuncExists(spec, "do_file_open"))
 	assert.False(t, FuncExists(spec, "qwerty"))
 }
 
@@ -44,8 +53,8 @@ func TestArgExists(t *testing.T) {
 	spec, err := btf.LoadKernelSpec()
 	assert.Nil(t, err)
 
-	assert.True(t, ArgExists(spec, "do_filp_open", "pathname"))
-	assert.False(t, ArgExists(spec, "do_filp_open", "qwerty"))
+	assert.True(t, ArgExists(spec, filpOpen(spec), "pathname"))
+	assert.False(t, ArgExists(spec, filpOpen(spec), "qwerty"))
 }
 
 func TestArgIdxByFunc(t *testing.T) {
@@ -53,7 +62,7 @@ func TestArgIdxByFunc(t *testing.T) {
 	assert.Nil(t, err)
 
 	expectedIdx := uint32(1)
-	idx, err := ArgIdxByFunc(spec, "do_filp_open", "pathname")
+	idx, err := ArgIdxByFunc(spec, filpOpen(spec), "pathname")
 	assert.Nil(t, err)
 	assert.Equal(t, expectedIdx, idx)
 }
