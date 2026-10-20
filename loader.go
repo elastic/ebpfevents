@@ -136,29 +136,33 @@ func (l *Loader) rewriteConstants(spec *ebpf.CollectionSpec) error {
 // loaded and attached.
 type dualFunc struct {
 	fn      string
-	tracing []string // fentry/fexit programs
-	kprobes []string // kprobe/kretprobe programs
+	tracing []string  // fentry/fexit programs
+	kprobes []string  // kprobe/kretprobe programs
+	renamed *dualFunc // the function under its 7.0 name, nil if not renamed
 }
 
 var dualFuncs = []dualFunc{
-	{"chmod_common", []string{bpfProgFexitChmodCommon}, []string{bpfProgKprobeChmodCommon, bpfProgKretprobeChmodCommon}},
-	{"chown_common", []string{bpfProgFexitChownCommon}, []string{bpfProgKprobeChownCommon, bpfProgKretprobeChownCommon}},
-	{"commit_creds", []string{bpfProgFentryCommitCreds}, []string{bpfProgKprobeCommitCreds}},
-	{"disassociate_ctty", []string{bpfProgFentryDisassociateCtty}, []string{bpfProgKprobeDisassociateCtty}},
-	{"do_filp_open", []string{bpfProgFexitDoFilpOpen}, []string{bpfProgKretprobeDoFilpOpen}},
-	{"do_renameat2", []string{bpfProgFentryDoRenameat2}, []string{bpfProgKprobeDoRenameat2}},
-	{"do_truncate", []string{bpfProgFexitDoTruncate}, []string{bpfProgKprobeDoTruncate, bpfProgKretprobeDoTruncate}},
-	{"do_unlinkat", []string{bpfProgFentryDoUnlinkat}, []string{bpfProgKprobeDoUnlinkat}},
-	{"inet_csk_accept", []string{bpfProgFexitInetCskAccept}, []string{bpfProgKretprobeInetCskAccept}},
-	{"mnt_want_write", []string{bpfProgFentryMntWantWrite}, []string{bpfProgKprobeMntWantWrite}},
-	{"tcp_close", []string{bpfProgFentryTcpClose}, []string{bpfProgKprobeTcpClose}},
-	{"tcp_v4_connect", []string{bpfProgFexitTcpV4Connect}, []string{bpfProgKprobeTcpV4Connect, bpfProgKretprobeTcpV4Connect}},
-	{"tcp_v6_connect", []string{bpfProgFexitTcpV6Connect}, []string{bpfProgKprobeTcpV6Connect, bpfProgKretprobeTcpV6Connect}},
-	{"tty_write", []string{bpfProgFentryTtyWrite}, []string{bpfProgKprobeTtyWrite}},
-	{"vfs_rename", []string{bpfProgFentryVfsRename, bpfProgFexitVfsRename}, []string{bpfProgKprobeVfsRename, bpfProgKretprobeVfsRename}},
-	{"vfs_unlink", []string{bpfProgFentryVfsUnlink, bpfProgFexitVfsUnlink}, []string{bpfProgKprobeVfsUnlink, bpfProgKretprobeVfsUnlink}},
-	{"vfs_write", []string{bpfProgFexitVfsWrite}, []string{bpfProgKprobeVfsWrite, bpfProgKretprobeVfsWrite}},
-	{"vfs_writev", []string{bpfProgFexitVfsWritev}, []string{bpfProgKprobeVfsWritev, bpfProgKretprobeVfsWritev}},
+	{"chmod_common", []string{bpfProgFexitChmodCommon}, []string{bpfProgKprobeChmodCommon, bpfProgKretprobeChmodCommon}, nil},
+	{"chown_common", []string{bpfProgFexitChownCommon}, []string{bpfProgKprobeChownCommon, bpfProgKretprobeChownCommon}, nil},
+	{"commit_creds", []string{bpfProgFentryCommitCreds}, []string{bpfProgKprobeCommitCreds}, nil},
+	{"disassociate_ctty", []string{bpfProgFentryDisassociateCtty}, []string{bpfProgKprobeDisassociateCtty}, nil},
+	{"do_filp_open", []string{bpfProgFexitDoFilpOpen}, []string{bpfProgKretprobeDoFilpOpen},
+		&dualFunc{"do_file_open", []string{bpfProgFexitDoFileOpen}, []string{bpfProgKretprobeDoFileOpen}, nil}},
+	{"do_renameat2", []string{bpfProgFentryDoRenameat2}, []string{bpfProgKprobeDoRenameat2},
+		&dualFunc{"filename_renameat2", []string{bpfProgFentryFilenameRenameat2}, []string{bpfProgKprobeFilenameRenameat2}, nil}},
+	{"do_truncate", []string{bpfProgFexitDoTruncate}, []string{bpfProgKprobeDoTruncate, bpfProgKretprobeDoTruncate}, nil},
+	{"do_unlinkat", []string{bpfProgFentryDoUnlinkat}, []string{bpfProgKprobeDoUnlinkat},
+		&dualFunc{"filename_unlinkat", []string{bpfProgFentryFilenameUnlinkat}, []string{bpfProgKprobeFilenameUnlinkat}, nil}},
+	{"inet_csk_accept", []string{bpfProgFexitInetCskAccept}, []string{bpfProgKretprobeInetCskAccept}, nil},
+	{"mnt_want_write", []string{bpfProgFentryMntWantWrite}, []string{bpfProgKprobeMntWantWrite}, nil},
+	{"tcp_close", []string{bpfProgFentryTcpClose}, []string{bpfProgKprobeTcpClose}, nil},
+	{"tcp_v4_connect", []string{bpfProgFexitTcpV4Connect}, []string{bpfProgKprobeTcpV4Connect, bpfProgKretprobeTcpV4Connect}, nil},
+	{"tcp_v6_connect", []string{bpfProgFexitTcpV6Connect}, []string{bpfProgKprobeTcpV6Connect, bpfProgKretprobeTcpV6Connect}, nil},
+	{"tty_write", []string{bpfProgFentryTtyWrite}, []string{bpfProgKprobeTtyWrite}, nil},
+	{"vfs_rename", []string{bpfProgFentryVfsRename, bpfProgFexitVfsRename}, []string{bpfProgKprobeVfsRename, bpfProgKretprobeVfsRename}, nil},
+	{"vfs_unlink", []string{bpfProgFentryVfsUnlink, bpfProgFexitVfsUnlink}, []string{bpfProgKprobeVfsUnlink, bpfProgKretprobeVfsUnlink}, nil},
+	{"vfs_write", []string{bpfProgFexitVfsWrite}, []string{bpfProgKprobeVfsWrite, bpfProgKretprobeVfsWrite}, nil},
+	{"vfs_writev", []string{bpfProgFexitVfsWritev}, []string{bpfProgKprobeVfsWritev, bpfProgKretprobeVfsWritev}, nil},
 }
 
 // fixedProgs are attached on every kernel.
@@ -174,6 +178,11 @@ var fixedProgs = []string{
 // BTF, or the kprobe/kretprobe programs otherwise. It deletes every other
 // program from spec, so what is left is what attachBpfProgs attaches.
 //
+// A renamed function is traced under its 7.0 name only if the old name is
+// missing from kernel BTF and the new one is present. pahole can leave out a
+// function the kernel still has (it did with do_renameat2), and a kprobe on
+// the old name still attaches there.
+//
 // An fentry/fexit program whose target is missing from kernel BTF fails to
 // load with ErrNotSupported, which fails the whole collection. pahole drops
 // functions that are inlined or have inconsistent prototypes, as happened to
@@ -187,6 +196,9 @@ func (l *Loader) pruneUnusedProgs(spec *ebpf.CollectionSpec) {
 		return slices.Contains(l.dropped, name)
 	})
 	for _, df := range dualFuncs {
+		if df.renamed != nil && !kernel.FuncExists(l.kbtf, df.fn) && kernel.FuncExists(l.kbtf, df.renamed.fn) {
+			df = *df.renamed
+		}
 		if l.hasBpfTramp && kernel.FuncExists(l.kbtf, df.fn) {
 			picked = append(picked, df.tracing...)
 		} else {

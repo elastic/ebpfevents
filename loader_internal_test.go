@@ -124,15 +124,29 @@ func objectDualFuncs(t *testing.T) map[string]map[string][]string {
 	return byFunc
 }
 
+// allDualFuncs returns dualFuncs with the 7.0 names of the renamed functions
+// as entries of their own.
+func allDualFuncs() []dualFunc {
+	var all []dualFunc
+	for _, df := range dualFuncs {
+		all = append(all, df)
+		if df.renamed != nil {
+			all = append(all, *df.renamed)
+		}
+	}
+	return all
+}
+
 // TestDualFuncs checks dualFuncs against the object: every dual function is
-// listed, with all of its programs in the right set. A function missing from
-// dualFuncs would have both variants loaded and neither attached.
+// listed, under its old or its 7.0 name, with all of its programs in the right
+// set. A function missing from dualFuncs would have both variants loaded and
+// neither attached.
 func TestDualFuncs(t *testing.T) {
 	want := objectDualFuncs(t)
 	require.NotEmpty(t, want)
 
 	got := map[string]map[string][]string{}
-	for _, df := range dualFuncs {
+	for _, df := range allDualFuncs() {
 		require.NotContains(t, got, df.fn, "%s is listed twice", df.fn)
 		got[df.fn] = map[string][]string{"tracing": df.tracing, "kprobe": df.kprobes}
 	}
@@ -169,20 +183,39 @@ func TestPruneUnusedProgs(t *testing.T) {
 		return testKernelBTF(t, types...)
 	}
 
+	// Kernels before 7.0 have the old names of the renamed functions, 7.0
+	// the new ones.
+	var oldNames, newNames []string
+	for _, df := range dualFuncs {
+		if df.renamed != nil {
+			oldNames = append(oldNames, df.fn)
+			newNames = append(newNames, df.renamed.fn)
+		}
+	}
+	without := func(names ...string) []string {
+		return append(slices.Clone(newNames), names...)
+	}
+
 	cases := []struct {
 		name        string
 		hasBpfTramp bool
 		missing     []string
+		renamed     bool // the renamed functions are traced under their new names
 	}{
-		{name: "no trampolines", hasBpfTramp: false},
-		{name: "trampolines, all functions in BTF", hasBpfTramp: true},
+		{name: "no trampolines", hasBpfTramp: false, missing: without()},
+		{name: "trampolines, all functions in BTF", hasBpfTramp: true, missing: without()},
 		// The kernel from beats#46719's dev box: trampolines, but
-		// do_renameat2 absent from BTF.
-		{name: "trampolines, do_renameat2 missing", hasBpfTramp: true, missing: []string{"do_renameat2"}},
+		// do_renameat2 absent from BTF. Without filename_renameat2 either,
+		// the kprobe on the old name is the one that attaches.
+		{name: "trampolines, do_renameat2 missing", hasBpfTramp: true, missing: without("do_renameat2")},
 		// static in fs/open.c, so pahole may leave them out.
 		{name: "trampolines, chmod_common and chown_common missing", hasBpfTramp: true,
-			missing: []string{"chmod_common", "chown_common"}},
+			missing: without("chmod_common", "chown_common")},
 		{name: "trampolines, every function missing", hasBpfTramp: true, missing: dual},
+		{name: "7.0, no trampolines", hasBpfTramp: false, missing: oldNames, renamed: true},
+		{name: "7.0, trampolines", hasBpfTramp: true, missing: oldNames, renamed: true},
+		// The old name wins when BTF has both.
+		{name: "trampolines, old and new names in BTF", hasBpfTramp: true},
 	}
 
 	for _, tc := range cases {
@@ -197,20 +230,29 @@ func TestPruneUnusedProgs(t *testing.T) {
 			l := &Loader{hasBpfTramp: tc.hasBpfTramp, kbtf: kernelWithout(tc.missing...)}
 			l.pruneUnusedProgs(spec)
 
+			unused := newNames
+			if tc.renamed {
+				unused = oldNames
+			}
+
 			wantPicked := slices.Clone(fixedProgs)
 			for _, fn := range dual {
-				want := "kprobe"
-				if tc.hasBpfTramp && !missing[fn] {
-					want = "tracing"
-				}
-				wantPicked = append(wantPicked, byFunc[fn][want]...)
-
 				got := map[string]bool{}
 				for name := range spec.Programs {
 					if fam, f, ok := splitProgName(name); ok && f == fn {
 						got[fam] = true
 					}
 				}
+				if slices.Contains(unused, fn) {
+					assert.Empty(t, got, "%s: no variant may survive the prune under this name", fn)
+					continue
+				}
+
+				want := "kprobe"
+				if tc.hasBpfTramp && !missing[fn] {
+					want = "tracing"
+				}
+				wantPicked = append(wantPicked, byFunc[fn][want]...)
 				assert.Equal(t, map[string]bool{want: true}, got,
 					"%s: exactly the %s variants must survive the prune", fn, want)
 			}
@@ -246,7 +288,7 @@ func TestProgramsAccountedFor(t *testing.T) {
 		}
 		known[name] = where
 	}
-	for _, df := range dualFuncs {
+	for _, df := range allDualFuncs() {
 		for _, name := range slices.Concat(df.tracing, df.kprobes) {
 			add(name, "dualFuncs")
 		}
